@@ -1,5 +1,5 @@
 # H01 — Foundation & Scaffolding
-Status: todo · Wave 1 (solo) · Branch: none (commits directly on `main`)
+Status: done (9940198) · Wave 1 (solo) · Branch: none (commits directly on `main`)
 
 ## Objective
 Create the repository, both application skeletons with **every** dependency later handovers need, tooling gates, route/page wiring that lets later handovers work on disjoint files, the frozen agent platform interface, and the Claude configuration. No product features.
