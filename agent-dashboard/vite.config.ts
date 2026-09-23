@@ -44,6 +44,10 @@ export default defineConfig({
     },
     lint: {
         ignorePatterns: [
+            '.ai/**',
+            '.claude/**',
+            'CLAUDE.md',
+            'boost.json',
             'vendor/**',
             'node_modules/**',
             'public/**',
@@ -67,6 +71,10 @@ export default defineConfig({
         singleAttributePerLine: false,
         htmlWhitespaceSensitivity: 'css',
         ignorePatterns: [
+            '.ai/**',
+            '.claude/**',
+            'CLAUDE.md',
+            'boost.json',
             '.github/**',
             'composer.json',
             'resources/js/components/ui/*',

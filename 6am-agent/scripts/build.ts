@@ -1,11 +1,13 @@
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
-const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
-  version: string;
-};
+const root = fileURLToPath(new URL('..', import.meta.url));
+
+const pkg = JSON.parse(await readFile(`${root}package.json`, 'utf8')) as { version: string };
 
 await build({
+  absWorkingDir: root,
   entryPoints: ['src/cli/main.ts'],
   outfile: 'dist/agent.cjs',
   bundle: true,

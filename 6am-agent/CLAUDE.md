@@ -12,6 +12,7 @@ Architecture: `../docs/architecture/agent.md`. Contracts: `../docs/contracts/cla
 ## Conventions
 
 - TypeScript strict, ESM source, esbuild bundle to `dist/agent.cjs`. Runtime deps: `zod` only.
+- The bundle is CommonJS: no top-level `await` in `src/**` (the build fails) and no `import.meta` (it is empty in the bundle; eslint forbids it).
 - Dependency injection via constructor params/factory functions. Filesystem, clock, and HTTP are injected so tests use fakes.
 - No token arithmetic beyond carrying raw integers. No aggregation for reporting.
 - Logs are JSON lines. Never log tokens, credentials, prompt text, or full file contents.
@@ -21,7 +22,7 @@ Architecture: `../docs/architecture/agent.md`. Contracts: `../docs/contracts/cla
 
 `kv` (device_uid, server_cursor, settings json/version, last sync times, agent state) and `file_checkpoints` (path, file_identity, size, mtime_ms, offset). No activity records.
 
-Driver: built-in `node:sqlite` (`DatabaseSync`), no `better-sqlite3`. Verified in H01 (2026-09-23) on Node v24.21.0, macOS arm64 (bundled SQLite 3.53.4): loads without flags and emits no ExperimentalWarning; `test/unit/sqlite-smoke.test.ts` passes. Windows and Linux are confirmed by H24.
+Driver: built-in `node:sqlite` (`DatabaseSync`), no `better-sqlite3`. Verified in H01 (2026-09-23) on Node v24.21.0, macOS arm64 (bundled SQLite 3.53.4): loads without flags and emits no ExperimentalWarning; `test/unit/sqlite-smoke.test.ts` passes. Windows and Linux are confirmed by H24. Node 25 (allowed for local dev) prints an ExperimentalWarning for `node:sqlite`; the shipped runtime is Node 24.
 
 ## Commands
 

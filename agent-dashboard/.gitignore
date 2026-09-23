@@ -39,3 +39,4 @@ yarn-error.log
 /AGENTS.md
 /opencode.json
 /opencode.jsonc
+/routes/*/zz-route-loading-probe.php
