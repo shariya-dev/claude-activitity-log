@@ -1,0 +1,31 @@
+{
+  "name": "6am-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "6AM Technologies Claude Code Activity Monitor desktop agent",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint": "eslint . && prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "build": "tsx scripts/build.ts",
+    "dev": "tsx src/cli/main.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.11.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^4.1.11"
+  }
+}

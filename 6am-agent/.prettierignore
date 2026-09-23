@@ -1,0 +1,5 @@
+dist/
+coverage/
+package-lock.json
+# Frozen: must stay byte-identical to docs/architecture/agent.md §2
+src/platform/types.ts
