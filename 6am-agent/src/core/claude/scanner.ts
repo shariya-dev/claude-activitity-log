@@ -28,6 +28,7 @@ import { fileIdentity, nodeFs, type FsLike, type StatLike } from './fs.js';
 import { readOriginRemote } from './gitRemote.js';
 import { BLOCK_SIZE, readCompleteLines } from './jsonlTailReader.js';
 import { parseLine, type LineGates, type ParsedLine } from './lineParser.js';
+import { truncateUnits, wellFormed } from './text.js';
 import { listTranscriptFiles, type TranscriptFile } from './transcriptFiles.js';
 
 export interface ClaudeScannerDeps {
@@ -102,19 +103,19 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
       let remote: string | null = null;
       if (categories.git) {
         const raw = await readGitRemote(cwd).catch(() => null);
-        remote = raw === null ? null : normalizeGitRemote(raw);
+        remote = raw === null ? null : normalizeGitRemote(wellFormed(raw));
         if (remote !== null && remote.length > REMOTE_MAX) remote = null;
       }
       const identity: ProjectIdentity =
         remote !== null
           ? {
               projectKey: projectKeyFromRemote(remote),
-              name: lastSegment(remote).slice(0, NAME_MAX),
+              name: truncateUnits(lastSegment(remote), NAME_MAX),
               gitRemote: remote,
             }
           : {
               projectKey: projectKeyFromCwd(deviceUid(), cwd),
-              name: lastSegment(cwd).slice(0, NAME_MAX),
+              name: truncateUnits(lastSegment(cwd), NAME_MAX),
               gitRemote: null,
             };
       identities.set(cwd, identity);
@@ -123,7 +124,6 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
 
     const agg = new ScanAggregator({
       usage: categories.usage,
-      project: categories.project,
       account,
       limits: {
         usage: Math.min(opts.maxUsagePerChunk, SYNC_LIMITS.usage),
@@ -180,12 +180,7 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
             tracker.observe(line);
             if (launchPending && line.cwd !== null && line.sessionId !== null) {
               launchPending = false;
-              agg.observeLaunch(
-                line.sessionId,
-                line.cwd,
-                line.timestampMs,
-                await identityFor(line.cwd),
-              );
+              agg.observeLaunch(line.sessionId, line.cwd, await identityFor(line.cwd));
             }
             if (isRecordLine(line, since)) {
               const project = await identityFor(line.cwd);

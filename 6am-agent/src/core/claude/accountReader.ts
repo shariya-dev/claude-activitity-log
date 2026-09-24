@@ -6,6 +6,7 @@
 import type { AccountRecord } from '../contract/index.js';
 import { accountKey } from '../detect/keys.js';
 import { type FsLike, nodeFs } from './fs.js';
+import { wellFormed } from './text.js';
 
 export async function readAccount(
   globalConfigPath: string,
@@ -44,5 +45,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** A non-empty string within the schema max length, else null. */
 function str(value: unknown, max: number): string | null {
-  return typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+    ? wellFormed(value)
+    : null;
 }

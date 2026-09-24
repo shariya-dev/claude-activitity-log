@@ -4,6 +4,7 @@
  * git branch, model and prompt text are only read when their category is ON.
  */
 import { extractPrompt } from './prompt.js';
+import { wellFormed } from './text.js';
 
 export const KNOWN_LINE_TYPES: ReadonlySet<string> = new Set([
   'assistant',
@@ -68,17 +69,24 @@ function isObject(value: unknown): value is Json {
 }
 
 function str(value: unknown, max: number): string | null {
-  return typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+    ? wellFormed(value)
+    : null;
 }
 
 function tokens(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
+/** Strict ISO-8601 UTC with `Z` (contract §8); no offsets or local times. */
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+/** The backend's MySQL TIMESTAMP floor (sync-api-v1 §6.3). */
+const MIN_MS = 1000;
+
 function timestampMs(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string' || !ISO_UTC.test(value)) return null;
   const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
+  return Number.isFinite(ms) && ms >= MIN_MS ? ms : null;
 }
 
 function parseUsage(line: Json, message: Json, rawModel: string | null): LineUsage | null {

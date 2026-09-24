@@ -34,7 +34,6 @@ export interface ChunkLimits {
 
 export interface AggregatorOptions {
   usage: boolean;
-  project: boolean;
   account: AccountRecord | null;
   limits: ChunkLimits;
 }
@@ -58,6 +57,12 @@ interface SessionState {
   sideModel: Stamped | null;
 }
 
+interface Launch {
+  cwd: string;
+  /** null when the Project category is OFF. */
+  identity: ProjectIdentity | null;
+}
+
 interface ProjectState {
   cwd: string;
   identity: ProjectIdentity;
@@ -65,8 +70,8 @@ interface ProjectState {
   lastMs: number;
 }
 
-/** Upper bound for one serialized session record (all strings at their max length). */
-const SESSION_BYTES = 1200;
+/** Upper bound for one serialized session record (every string at its max length, escaped). */
+const SESSION_BYTES = 4096;
 /** Room for token counts that grow while duplicates are merged. */
 const USAGE_SLACK_BYTES = 64;
 const PROJECT_SLACK_BYTES = 16;
@@ -81,7 +86,7 @@ function latest(current: Stamped | null, value: string | null, ms: number): Stam
 
 export class ScanAggregator {
   private readonly sessions = new Map<string, SessionState>();
-  private readonly launchCwd = new Map<string, string>();
+  private readonly launch = new Map<string, Launch>();
   private readonly projects = new Map<string, ProjectState>();
 
   private chunkSessions = new Set<string>();
@@ -97,23 +102,39 @@ export class ScanAggregator {
   constructor(private readonly opts: AggregatorOptions) {}
 
   /**
-   * The first line with a cwd in a main file read from offset 0 (even before `since`).
-   * `identity` is null when the Project category is OFF.
+   * The first line with a cwd in a main file read from offset 0 (even before `since`). Only
+   * the cwd is kept: a pre-`since` line's timestamp is never sent.
    */
-  observeLaunch(
-    sessionId: string,
-    cwd: string,
-    ms: number | null,
+  observeLaunch(sessionId: string, cwd: string, identity: ProjectIdentity | null): void {
+    if (!this.launch.has(sessionId)) this.launch.set(sessionId, { cwd, identity });
+  }
+
+  /** Projects `line` would add to the chunk: its own cwd and its session's launch cwd. */
+  private newProjects(
+    line: RecordLine,
     identity: ProjectIdentity | null,
-  ): void {
-    if (this.launchCwd.has(sessionId)) return;
-    this.launchCwd.set(sessionId, cwd);
-    if (identity === null) return;
-    if (ms !== null) this.touchProject(cwd, identity, ms);
-    if (this.chunkSessions.has(sessionId) && this.projects.has(cwd) && !this.chunkCwds.has(cwd)) {
-      this.chunkCwds.add(cwd);
-      this.chunkBytes += SESSION_BYTES;
+  ): [string, ProjectIdentity][] {
+    const out: [string, ProjectIdentity][] = [];
+    if (identity !== null && line.cwd !== null && !this.chunkCwds.has(line.cwd)) {
+      out.push([line.cwd, identity]);
     }
+    const launch = this.launch.get(line.sessionId);
+    if (
+      launch !== undefined &&
+      launch.identity !== null &&
+      launch.cwd !== line.cwd &&
+      !this.chunkCwds.has(launch.cwd)
+    ) {
+      out.push([launch.cwd, launch.identity]);
+    }
+    return out;
+  }
+
+  private projectBytes(cwd: string, identity: ProjectIdentity, ms: number): number {
+    const known = this.projects.get(cwd);
+    const record =
+      known === undefined ? this.projectRecord(cwd, identity, ms, ms) : this.toProjectRecord(known);
+    return jsonBytes(record) + PROJECT_SLACK_BYTES;
   }
 
   /** Whether adding `line` keeps the current chunk within every limit. */
@@ -126,18 +147,10 @@ export class ScanAggregator {
       sessions += 1;
       bytes += SESSION_BYTES;
       if (sessions === 1 && this.opts.account !== null) bytes += jsonBytes(this.opts.account);
-      const launch = this.launchCwd.get(line.sessionId);
-      if (launch !== undefined && launch !== line.cwd && !this.chunkCwds.has(launch)) {
-        projects += 1;
-        bytes += SESSION_BYTES;
-      }
     }
-    if (identity !== null && line.cwd !== null && !this.chunkCwds.has(line.cwd)) {
+    for (const [cwd, id] of this.newProjects(line, identity)) {
       projects += 1;
-      bytes += jsonBytes(
-        this.projectRecord(line.cwd, identity, line.timestampMs, line.timestampMs),
-      );
-      bytes += PROJECT_SLACK_BYTES;
+      bytes += this.projectBytes(cwd, id, line.timestampMs);
     }
     const usage = this.usageRecordFor(line);
     let usageCount = this.chunkUsage.size;
@@ -162,6 +175,7 @@ export class ScanAggregator {
 
   add(line: RecordLine, identity: ProjectIdentity | null): void {
     const ms = line.timestampMs;
+    const added = this.newProjects(line, identity);
     const session = this.touchSession(line);
     if (!this.chunkSessions.has(session.id)) {
       this.chunkSessions.add(session.id);
@@ -169,20 +183,14 @@ export class ScanAggregator {
       if (this.chunkSessions.size === 1 && this.opts.account !== null) {
         this.chunkBytes += jsonBytes(this.opts.account);
       }
-      const launch = this.launchCwd.get(session.id);
-      if (launch !== undefined && this.projects.has(launch) && !this.chunkCwds.has(launch)) {
-        this.chunkCwds.add(launch);
-        this.chunkBytes += SESSION_BYTES;
-      }
     }
-    if (identity !== null && line.cwd !== null) {
-      const isNew = !this.chunkCwds.has(line.cwd);
-      const project = this.touchProject(line.cwd, identity, ms);
-      if (isNew) {
-        this.chunkCwds.add(line.cwd);
-        this.chunkBytes += jsonBytes(this.toProjectRecord(project)) + PROJECT_SLACK_BYTES;
-      }
+    for (const [cwd, id] of added) {
+      this.chunkBytes += this.projectBytes(cwd, id, ms);
+      this.chunkCwds.add(cwd);
+      // A launch project first seen through another cwd's line starts at this in-range time.
+      if (!this.projects.has(cwd)) this.touchProject(cwd, id, ms);
     }
+    if (identity !== null && line.cwd !== null) this.touchProject(line.cwd, identity, ms);
     const usage = this.usageRecordFor(line);
     if (usage !== null) {
       const key = this.usageKey(line.sessionId, usage);
@@ -348,11 +356,15 @@ export class ScanAggregator {
 
   private toSessionRecord(id: string): SessionRecord {
     const s = this.sessions.get(id)!;
-    const launch = this.launchCwd.get(id);
-    const project = launch === undefined ? undefined : this.projects.get(launch);
+    const launch = this.launch.get(id);
+    // Only when the launch project travels in this chunk (referential rule, sync-api-v1 §4.6).
+    const projectKey =
+      launch?.identity != null && this.chunkCwds.has(launch.cwd)
+        ? launch.identity.projectKey
+        : null;
     return {
       source_session_id: s.id,
-      project_key: this.opts.project && project !== undefined ? project.identity.projectKey : null,
+      project_key: projectKey,
       account_key: this.opts.account?.account_key ?? null,
       first_seen_at: iso(s.firstMs),
       last_seen_at: iso(s.lastMs),

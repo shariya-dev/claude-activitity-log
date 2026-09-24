@@ -83,6 +83,8 @@ describe('extractPrompt (rules)', () => {
     expect(extractPrompt(user('hello', { origin: { kind: 'human' } }))).toBe('hello');
     expect(extractPrompt(user('hello', { origin: {} }))).toBe('hello');
     expect(extractPrompt(user('hello', { origin: null }))).toBe('hello');
+    expect(extractPrompt(user('hello', { origin: 'peer' }))).toBeNull();
+    expect(extractPrompt(user('hello', { origin: ['human'] }))).toBeNull();
   });
 
   it.each([
