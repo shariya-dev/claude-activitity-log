@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://monitor.6amtech.com/contracts/sync-api-v1/register.request.json",
+  "title": "POST /register request",
+  "type": "object",
+  "properties": {
+    "pairing_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "device": {
+      "type": "object",
+      "properties": {
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 191
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "macos",
+            "windows",
+            "linux"
+          ]
+        },
+        "platform_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "architecture": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "machine_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "agent_version": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "claude_code_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "hostname",
+        "platform",
+        "platform_version",
+        "architecture",
+        "machine_fingerprint",
+        "agent_version",
+        "claude_code_version"
+      ]
+    }
+  },
+  "required": [
+    "pairing_code",
+    "device"
+  ]
+}

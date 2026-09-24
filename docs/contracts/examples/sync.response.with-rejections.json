@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "batch_id": "4a3b2c1d-0e9f-4a8b-9c7d-6e5f4a3b2c1d",
+  "sync": {
+    "accepted": 7,
+    "created": 5,
+    "updated": 2,
+    "rejected": 3
+  },
+  "rejected_records": [
+    {
+      "type": "usage",
+      "source_id": "msg_01L0mN1pQ2rS3tU4vW5xY6zA",
+      "reason": "negative_token_value"
+    },
+    {
+      "type": "usage",
+      "source_id": "msg_01M1nP2qR3sT4uV5wX6yZ7aB",
+      "reason": "future_timestamp"
+    },
+    {
+      "type": "message",
+      "source_id": "a3b4c5d6-e7f8-4a9b-8c0d-1e2f3a4b5c6d",
+      "reason": "category_disabled"
+    }
+  ],
+  "cursor": "eyJzZXF1ZW5jZSI6NDMsImJhdGNoX2lkIjoiNGEzYjJjMWQtMGU5Zi00YThiLTljN2QtNmU1ZjRhM2IyYzFkIiwiYWNrZWRfYXQiOiIyMDI2LTA5LTIzVDEwOjQ0OjAxWiJ9",
+  "settings_version": 3,
+  "server_time": "2026-09-23T10:44:01Z"
+}

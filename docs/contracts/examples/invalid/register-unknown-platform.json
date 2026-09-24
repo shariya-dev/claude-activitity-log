@@ -1,0 +1,26 @@
+{
+  "description": "device.platform is not one of macos|windows|linux.",
+  "schema": "register.request",
+  "expect": {
+    "zod_path": [
+      "device",
+      "platform"
+    ],
+    "backend": {
+      "status": 422,
+      "code": "invalid_payload"
+    }
+  },
+  "payload": {
+    "pairing_code": "K7Q2-M9XD",
+    "device": {
+      "hostname": "dev-laptop-01",
+      "platform": "solaris",
+      "platform_version": "11.4",
+      "architecture": "x64",
+      "machine_fingerprint": "4fb8881ba73108590b554d9cf3a69c4745d8bd5ecfac3dc559b79f137d9b0d68",
+      "agent_version": "1.0.0",
+      "claude_code_version": "2.1.274"
+    }
+  }
+}

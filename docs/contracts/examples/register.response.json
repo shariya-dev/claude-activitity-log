@@ -1,0 +1,29 @@
+{
+  "device_id": "dev_01K5Y8Q2ZC3M4N5P6R7S8T9V0W",
+  "token": "17|Qm3v8ZyP2tLk9WcR4nHs7XbD1fGj6TaE0uVoYiNp",
+  "developer": {
+    "name": "Dana Developer",
+    "email": "dana.developer@example.com"
+  },
+  "settings": {
+    "version": 1,
+    "categories": {
+      "session": true,
+      "usage": true,
+      "project": true,
+      "model": true,
+      "device": true,
+      "account": true,
+      "prompt": false,
+      "git": false,
+      "network": false
+    },
+    "initial_sync": {
+      "range": "7d",
+      "since": "2026-09-10T09:15:42.318Z"
+    },
+    "sync_interval_seconds": 120,
+    "heartbeat_interval_seconds": 300,
+    "min_agent_version": "1.0.0"
+  }
+}

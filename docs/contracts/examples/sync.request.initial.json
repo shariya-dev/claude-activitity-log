@@ -1,0 +1,91 @@
+{
+  "agent": {
+    "device_id": "dev_01K5Y8Q2ZC3M4N5P6R7S8T9V0W",
+    "platform": "linux",
+    "platform_version": "6.8.0-45-generic",
+    "architecture": "x64",
+    "agent_version": "1.0.0",
+    "claude_code_version": "2.1.274"
+  },
+  "sync": {
+    "batch_id": "6e5d4c3b-2a19-4f08-b7e6-d5c4b3a29180",
+    "cursor": null,
+    "is_initial": true,
+    "settings_version": 1,
+    "sequence": 1
+  },
+  "accounts": [
+    {
+      "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+      "account_uuid": "8b0e4a52-6c1d-4f3e-9a7b-2d5c8e1f0a96",
+      "email": "dana.developer@example.com",
+      "display_name": "Dana Developer",
+      "organization_uuid": "3e7f1c90-2b4a-4d6e-8f15-7a9c0b3d5e21",
+      "organization_name": "Example Org",
+      "observed_at": "2026-09-17T09:16:03.441Z"
+    }
+  ],
+  "projects": [
+    {
+      "project_key": "d653e136367808b28d3985ba3c216c38ae762033745fb07249fb6359159fe95c",
+      "name": "acme-api",
+      "path": "/home/dev/work/acme-api",
+      "git_remote": null,
+      "first_seen_at": "2026-09-12T14:20:07.915Z",
+      "last_seen_at": "2026-09-16T17:48:29.660Z"
+    }
+  ],
+  "sessions": [
+    {
+      "source_session_id": "d8e9f0a1-b2c3-4d4e-8f5a-6b7c8d9e0f1a",
+      "project_key": "d653e136367808b28d3985ba3c216c38ae762033745fb07249fb6359159fe95c",
+      "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+      "first_seen_at": "2026-09-12T14:20:07.915Z",
+      "last_seen_at": "2026-09-12T15:03:51.284Z",
+      "ended_at": "2026-09-12T15:03:51.284Z",
+      "claude_code_version": "2.1.260",
+      "entrypoint": "cli",
+      "git_branch": null,
+      "model": "claude-sonnet-5"
+    },
+    {
+      "source_session_id": "e2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b",
+      "project_key": "d653e136367808b28d3985ba3c216c38ae762033745fb07249fb6359159fe95c",
+      "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+      "first_seen_at": "2026-09-16T16:55:12.037Z",
+      "last_seen_at": "2026-09-16T17:48:29.660Z",
+      "ended_at": null,
+      "claude_code_version": "2.1.274",
+      "entrypoint": "cli",
+      "git_branch": null,
+      "model": "claude-opus-5"
+    }
+  ],
+  "usage": [
+    {
+      "source_message_id": "msg_01J8kL9mN0pQ1rS5tU3vW4xY",
+      "source_session_id": "d8e9f0a1-b2c3-4d4e-8f5a-6b7c8d9e0f1a",
+      "request_id": "req_01G6hJ7kL8mN9pQ0rS4tU2vW",
+      "model": "claude-sonnet-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-12T15:03:51.284Z",
+      "input_tokens": 8,
+      "output_tokens": 2045,
+      "cache_creation_tokens": 36110,
+      "cache_read_tokens": 12004
+    },
+    {
+      "source_message_id": "msg_01K9lM0nP1qR2sT3uV4wX5yZ",
+      "source_session_id": "e2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b",
+      "request_id": "req_01H7jK8lM9nP0qR1sT2uV3wX",
+      "model": "claude-opus-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-16T17:48:29.660Z",
+      "input_tokens": 12,
+      "output_tokens": 3390,
+      "cache_creation_tokens": 5120,
+      "cache_read_tokens": 88415
+    }
+  ],
+  "messages": []
+}

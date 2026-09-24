@@ -1,0 +1,10 @@
+{
+  "agent_version": "1.0.0",
+  "claude_code_version": "2.1.274",
+  "platform_version": "6.8.0-45-generic",
+  "hostname": "dev-laptop-01",
+  "agent_state": "ok",
+  "last_local_activity_at": "2026-09-23T12:14:02.338Z",
+  "last_successful_sync_at": "2026-09-23T12:15:01Z",
+  "last_error": null
+}

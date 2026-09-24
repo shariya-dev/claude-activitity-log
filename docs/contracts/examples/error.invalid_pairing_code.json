@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "invalid_pairing_code",
+    "message": "The pairing code is invalid or has expired.",
+    "retryable": false
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "agent": {
+    "device_id": "dev_01K5Y8Q2ZC3M4N5P6R7S8T9V0W",
+    "platform": "linux",
+    "platform_version": null,
+    "architecture": "x64",
+    "agent_version": "1.0.0",
+    "claude_code_version": null
+  },
+  "sync": {
+    "batch_id": "9c8b7a6f-5e4d-4c3b-8a2f-1e0d9c8b7a6f",
+    "cursor": null,
+    "is_initial": false,
+    "settings_version": 4,
+    "sequence": 44
+  },
+  "accounts": [],
+  "projects": [],
+  "sessions": [
+    {
+      "source_session_id": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+      "project_key": null,
+      "account_key": null,
+      "first_seen_at": "2026-09-23T11:02:19.006Z",
+      "last_seen_at": "2026-09-23T11:09:54.731Z",
+      "ended_at": null,
+      "claude_code_version": null,
+      "entrypoint": null,
+      "git_branch": null,
+      "model": null
+    }
+  ],
+  "usage": [
+    {
+      "source_message_id": "msg_01F5gH6jK7lM8nP9qR0sT1uV",
+      "source_session_id": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+      "request_id": null,
+      "model": null,
+      "is_sidechain": false,
+      "recorded_at": "2026-09-23T11:09:54.731Z",
+      "input_tokens": 4,
+      "output_tokens": 523,
+      "cache_creation_tokens": 1880,
+      "cache_read_tokens": 31207
+    }
+  ],
+  "messages": []
+}

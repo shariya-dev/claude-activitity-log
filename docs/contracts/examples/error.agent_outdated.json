@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "agent_outdated",
+    "message": "This agent version is no longer supported. Update to 1.2.0 or later.",
+    "retryable": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "success": false,
+  "error": {
+    "code": "invalid_payload",
+    "message": "The payload is invalid.",
+    "retryable": false,
+    "errors": {
+      "sync.batch_id": [
+        "The sync.batch_id field is required."
+      ],
+      "agent.platform": [
+        "The selected agent.platform is invalid."
+      ]
+    }
+  }
+}

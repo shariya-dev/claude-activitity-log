@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "batch_too_large",
+    "message": "The batch exceeds the size limits. Split it into smaller batches.",
+    "retryable": true
+  }
+}

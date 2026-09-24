@@ -1,0 +1,141 @@
+{
+  "description": "A usage record timestamp has a UTC offset instead of Z. Record-level problem: the backend rejects only this record.",
+  "schema": "sync.request",
+  "expect": {
+    "zod_path": [
+      "usage",
+      0,
+      "recorded_at"
+    ],
+    "backend": {
+      "status": 200,
+      "rejection_reason": "invalid_timestamp"
+    }
+  },
+  "payload": {
+    "agent": {
+      "device_id": "dev_01K5Y8Q2ZC3M4N5P6R7S8T9V0W",
+      "platform": "linux",
+      "platform_version": "6.8.0-45-generic",
+      "architecture": "x64",
+      "agent_version": "1.0.0",
+      "claude_code_version": "2.1.274"
+    },
+    "sync": {
+      "batch_id": "5f2b8c1e-9d3a-4e7b-b6c4-1a2d3e4f5a6b",
+      "cursor": "eyJzZXF1ZW5jZSI6NDEsImJhdGNoX2lkIjoiMGU5ZDhjN2ItNmE1Zi00ZTNkLWEyYzEtYjBhOWY4ZTdkNmM1IiwiYWNrZWRfYXQiOiIyMDI2LTA5LTIzVDEwOjQwOjAyWiJ9",
+      "is_initial": false,
+      "settings_version": 3,
+      "sequence": 42
+    },
+    "accounts": [
+      {
+        "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+        "account_uuid": "8b0e4a52-6c1d-4f3e-9a7b-2d5c8e1f0a96",
+        "email": "dana.developer@example.com",
+        "display_name": "Dana Developer",
+        "organization_uuid": "3e7f1c90-2b4a-4d6e-8f15-7a9c0b3d5e21",
+        "organization_name": "Example Org",
+        "observed_at": "2026-09-23T09:58:11.204Z"
+      }
+    ],
+    "projects": [
+      {
+        "project_key": "05e8b8f453213ead6bd8f35ea9108d637660d654e23487a7f9f0dacacc5932b0",
+        "name": "acme-api",
+        "path": "/home/dev/work/acme-api",
+        "git_remote": "github.com/example-org/acme-api",
+        "first_seen_at": "2026-09-18T08:02:44.120Z",
+        "last_seen_at": "2026-09-23T10:41:07.512Z"
+      },
+      {
+        "project_key": "44516bd61efff16be72fce1c3dc4bed95f498c06d9d724cb6e2cc34217bb0a3b",
+        "name": "acme-web",
+        "path": "/home/dev/work/acme-web",
+        "git_remote": null,
+        "first_seen_at": "2026-09-23T10:05:13.771Z",
+        "last_seen_at": "2026-09-23T10:22:48.090Z"
+      }
+    ],
+    "sessions": [
+      {
+        "source_session_id": "3cd42766-9f0b-4b8e-a1c2-5d6e7f809a1b",
+        "project_key": "05e8b8f453213ead6bd8f35ea9108d637660d654e23487a7f9f0dacacc5932b0",
+        "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+        "first_seen_at": "2026-09-23T09:58:11.204Z",
+        "last_seen_at": "2026-09-23T10:41:07.512Z",
+        "ended_at": null,
+        "claude_code_version": "2.1.274",
+        "entrypoint": "cli",
+        "git_branch": "feature/login-throttle",
+        "model": "claude-sonnet-5"
+      },
+      {
+        "source_session_id": "7a1e5c3d-2f4b-4c6d-8e9f-0a1b2c3d4e5f",
+        "project_key": "44516bd61efff16be72fce1c3dc4bed95f498c06d9d724cb6e2cc34217bb0a3b",
+        "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+        "first_seen_at": "2026-09-23T10:05:13.771Z",
+        "last_seen_at": "2026-09-23T10:22:48.090Z",
+        "ended_at": "2026-09-23T10:22:48.090Z",
+        "claude_code_version": "2.1.274",
+        "entrypoint": "cli",
+        "git_branch": "main",
+        "model": "claude-opus-5"
+      }
+    ],
+    "usage": [
+      {
+        "source_message_id": "msg_01A7kQ2vXb9LmN3pR5sT8uWy",
+        "source_session_id": "3cd42766-9f0b-4b8e-a1c2-5d6e7f809a1b",
+        "request_id": "req_01B2cD3eF4gH5iJ6kL7mN8oP",
+        "model": "claude-sonnet-5",
+        "is_sidechain": false,
+        "recorded_at": "2026-09-23T15:58:32+06:00",
+        "input_tokens": 2,
+        "output_tokens": 866,
+        "cache_creation_tokens": 48433,
+        "cache_read_tokens": 19929
+      },
+      {
+        "source_message_id": "msg_01C9dE2fG3hJ4kL5mN6pQ7rS",
+        "source_session_id": "3cd42766-9f0b-4b8e-a1c2-5d6e7f809a1b",
+        "request_id": "req_01D3eF4gH5iJ6kL7mN8oP9qR",
+        "model": "claude-haiku-5",
+        "is_sidechain": true,
+        "recorded_at": "2026-09-23T10:12:05.417Z",
+        "input_tokens": 1204,
+        "output_tokens": 312,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 8850
+      },
+      {
+        "source_message_id": "msg_01E4fG5hJ6kL7mN8pQ9rS0tU",
+        "source_session_id": "7a1e5c3d-2f4b-4c6d-8e9f-0a1b2c3d4e5f",
+        "request_id": null,
+        "model": "claude-opus-5",
+        "is_sidechain": false,
+        "recorded_at": "2026-09-23T10:22:48.090Z",
+        "input_tokens": 6,
+        "output_tokens": 1450,
+        "cache_creation_tokens": 2210,
+        "cache_read_tokens": 60312
+      }
+    ],
+    "messages": [
+      {
+        "source_message_id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+        "source_session_id": "3cd42766-9f0b-4b8e-a1c2-5d6e7f809a1b",
+        "role": "user",
+        "content": "Add rate limiting to the login endpoint and cover it with a feature test.",
+        "recorded_at": "2026-09-23T09:58:11.204Z"
+      },
+      {
+        "source_message_id": "f2a3b4c5-d6e7-4f8a-9b0c-1d2e3f4a5b6c",
+        "source_session_id": "7a1e5c3d-2f4b-4c6d-8e9f-0a1b2c3d4e5f",
+        "role": "user",
+        "content": "Why does the dashboard chart flicker on resize?",
+        "recorded_at": "2026-09-23T10:05:13.771Z"
+      }
+    ]
+  }
+}
