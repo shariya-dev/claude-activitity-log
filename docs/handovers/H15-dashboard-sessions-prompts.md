@@ -1,5 +1,5 @@
 # H15 — Sessions List, Session Detail, Prompt Viewing (PRD §16, §24, §47–48, §52)
-Status: todo · Wave 4 · parallel with H11–H14, H16, H17 · Branch `handover/H15-dashboard-sessions`
+Status: done (52ca957) · Wave 4 · parallel with H11–H14, H16, H17 · Branch `handover/H15-dashboard-sessions`
 
 ## Objective
 Filterable session list and session detail with token breakdown and per-message usage timeline, and permission-gated, audited prompt viewing.
