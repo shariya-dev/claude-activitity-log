@@ -1,0 +1,18 @@
+{
+  "name": "6am-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end sync harness: the real built agent against the real Laravel backend through a fault-injecting proxy (H22)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "proxy": "tsx lib/proxy.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "vitest": "^4.1.11"
+  }
+}
