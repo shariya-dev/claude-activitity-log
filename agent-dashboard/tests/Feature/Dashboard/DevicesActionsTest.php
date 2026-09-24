@@ -91,6 +91,27 @@ test('enable re-activates a disabled device on its existing token and audits it'
         ->and(AuditLog::query()->where('action', 'device.enabled')->where('subject_id', $device->id)->exists())->toBeTrue();
 });
 
+test('the disable and enable flashes describe the kept token and the hourly probe', function () {
+    $admin = User::factory()->admin()->create();
+    $device = Device::factory()->create();
+
+    $this->actingAs($admin)
+        ->followingRedirects()
+        ->post(route('devices.disable', $device))
+        ->assertInertia(fn (Assert $page) => $page->hasFlash('toast', [
+            'type' => 'success',
+            'message' => 'Device disabled. The agent stops syncing and checks back hourly. Its history is kept.',
+        ]));
+
+    $this->actingAs($admin)
+        ->followingRedirects()
+        ->post(route('devices.enable', $device))
+        ->assertInertia(fn (Assert $page) => $page->hasFlash('toast', [
+            'type' => 'success',
+            'message' => 'Device enabled. The agent resumes syncing on its existing token after its next hourly check; no re-pair is needed.',
+        ]));
+});
+
 test('sync now sets sync_requested_at and audits sync.requested', function () {
     $admin = User::factory()->admin()->create();
     $device = Device::factory()->create(['sync_requested_at' => null]);

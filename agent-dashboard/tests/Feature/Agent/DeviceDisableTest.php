@@ -92,3 +92,14 @@ test('a disabled device can still deregister with its token, which then is revok
     $this->app['auth']->forgetGuards();
     ContractExamples::assertErrorEnvelope($this->postJson('/api/agent/v1/deregister', [], $this->headers), 401, 'unauthenticated');
 });
+
+test('an uninstalled device with a surviving token gets the exact device_uninstalled envelope', function (string $method, string $uri, ?string $body) {
+    $this->device->update(['status' => DeviceStatus::Uninstalled, 'uninstalled_at' => now()]);
+
+    $response = $this->json($method, $uri, $body === null ? [] : ContractExamples::load($body), $this->headers)
+        ->assertHeader('X-Settings-Version', '1')
+        ->assertHeader('X-Server-Time', '2026-09-23T12:00:00Z');
+
+    ContractExamples::assertErrorEnvelope($response, 403, 'device_uninstalled');
+    $response->assertExactJson(ContractExamples::load('error.device_uninstalled'));
+})->with('device.active endpoints');

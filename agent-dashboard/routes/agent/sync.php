@@ -5,10 +5,11 @@ use Illuminate\Support\Facades\Route;
 
 /*
 | Loaded with prefix api/agent/v1 and the `api` middleware group (bootstrap/app.php).
-| `device.active` resolves the Sanctum device itself and answers 401/403 with the contract error envelope;
-| `auth:sanctum` then makes the device the request user, so the throttle is keyed per device
-| (prefix `agent-device`, shared with the other agent endpoints and distinct from user throttles).
+| Check order 401 → 429 → 403 (contract §2), same as routes/agent/device.php: `auth:sanctum` makes the
+| device the request user, so the throttle is keyed per device (prefix `agent-device`, shared with the
+| other agent endpoints and distinct from user throttles); `device.active` then answers 403.
+| settings.version is prioritised right after authentication (bootstrap/app.php), so it wraps the throttle.
 */
 Route::post('sync', SyncController::class)
-    ->middleware(['settings.version', 'device.active', 'auth:sanctum', 'throttle:60,1,agent-device'])
+    ->middleware(['auth:sanctum', 'settings.version', 'throttle:60,1,agent-device', 'device.active'])
     ->name('agent.v1.sync');

@@ -32,7 +32,7 @@ class DeviceActionController extends Controller
 
         $action->handle($device, $this->user($request));
 
-        return $this->back($device, 'success', 'Device disabled. Its history is kept.');
+        return $this->back($device, 'success', 'Device disabled. The agent stops syncing and checks back hourly. Its history is kept.');
     }
 
     public function enable(Request $request, Device $device, EnableDevice $action): RedirectResponse
@@ -45,7 +45,7 @@ class DeviceActionController extends Controller
 
         $action->handle($device, $this->user($request));
 
-        return $this->back($device, 'success', 'Device enabled. The agent must be re-paired before it can sync.');
+        return $this->back($device, 'success', 'Device enabled. The agent resumes syncing on its existing token after its next hourly check; no re-pair is needed.');
     }
 
     public function requestSync(Request $request, Device $device, RequestManualSync $action): RedirectResponse
