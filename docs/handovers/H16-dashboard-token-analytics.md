@@ -1,5 +1,5 @@
 # H16 — Token Analytics Explorer (PRD §19–22)
-Status: todo · Wave 4 · parallel with H11–H15, H17 · Branch `handover/H16-token-analytics`
+Status: done (c0bd93a) · Wave 4 · parallel with H11–H15, H17 · Branch `handover/H16-token-analytics`
 
 ## Objective
 One page to slice token metrics by any dimension and period: filters for every dimension, a granularity switch, a group-by dimension, totals, trend, and breakdown, with an explanation of the calculation.
