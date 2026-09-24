@@ -1,5 +1,5 @@
 # H34 — Dashboard Login Only
-Status: todo · Follow-up (user request 2026-09-24) · solo · Branch `handover/H34-login-only`
+Status: done (6d17fa3) · Follow-up (user request 2026-09-24) · solo · Branch `handover/H34-login-only`
 
 ## Objective
 The dashboard's only public entry is email + password login. After login the user lands on the dashboard (`/dashboard`). Users are created only by admins (Users page, H17) or `php artisan monitor:create-admin` (H08), so self-registration, email verification, password reset, passkey login and two-factor challenge are removed.
