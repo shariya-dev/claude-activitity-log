@@ -10,7 +10,9 @@ use Illuminate\Support\Facades\Route;
 /*
 | Agent device endpoints (docs/contracts/sync-api-v1.md §3). Loaded under /api/agent/v1.
 | Check order on authenticated routes: 401 → 429 → 403. settings.version wraps throttle and
-| device.active so every post-authentication response, errors included, carries the headers.
+| device.active (its priority is set right after authentication in bootstrap/app.php, because the
+| framework otherwise sorts the throttle ahead of it), so every post-authentication response, errors
+| included, carries the headers.
 */
 
 Route::post('register', RegisterController::class)

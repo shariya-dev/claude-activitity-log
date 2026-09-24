@@ -27,7 +27,7 @@ class EnsureDeviceIsActive
 
         return match ($device->status) {
             DeviceStatus::Disabled => $this->error(403, 'device_disabled', 'This device has been disabled by an administrator.'),
-            DeviceStatus::Uninstalled => $this->error(403, 'device_uninstalled', 'This device has been uninstalled. Pair it again to resume syncing.'),
+            DeviceStatus::Uninstalled => $this->error(403, 'device_uninstalled', 'This device has been marked as uninstalled.'),
             DeviceStatus::Active => $next($request),
         };
     }

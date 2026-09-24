@@ -3,6 +3,7 @@
 use App\Models\Device;
 use App\Models\TrackingSetting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Env;
 use Tests\Feature\Agent\ContractExamples;
 
 uses(RefreshDatabase::class);
@@ -19,14 +20,32 @@ uses(RefreshDatabase::class);
  */
 function bootWithTrustedProxies(?string $value): void
 {
-    if ($value === null) {
-        putenv('MONITOR_TRUSTED_PROXIES');
-    } else {
-        putenv('MONITOR_TRUSTED_PROXIES='.$value);
-    }
+    setTrustedProxiesEnv($value);
 
     test()->refreshApplication();
     test()->refreshDatabase();
+}
+
+/**
+ * Sets (or clears) MONITOR_TRUSTED_PROXIES as a real process variable, so a `.env` value (even the
+ * empty `MONITOR_TRUSTED_PROXIES=` line from `.env.example`) cannot shadow it. The key is first
+ * cleared from the shared env repository: dotenv overwrites variables it loaded itself on the next
+ * boot, but never an externally defined one.
+ */
+function setTrustedProxiesEnv(?string $value): void
+{
+    Env::getRepository()->clear('MONITOR_TRUSTED_PROXIES');
+
+    if ($value === null) {
+        putenv('MONITOR_TRUSTED_PROXIES');
+        unset($_ENV['MONITOR_TRUSTED_PROXIES'], $_SERVER['MONITOR_TRUSTED_PROXIES']);
+
+        return;
+    }
+
+    putenv('MONITOR_TRUSTED_PROXIES='.$value);
+    $_ENV['MONITOR_TRUSTED_PROXIES'] = $value;
+    $_SERVER['MONITOR_TRUSTED_PROXIES'] = $value;
 }
 
 /**
@@ -52,7 +71,7 @@ function heartbeatIpVia(string $remoteAddr, string $forwardedFor): ?string
 }
 
 afterEach(function () {
-    putenv('MONITOR_TRUSTED_PROXIES');
+    setTrustedProxiesEnv(null);
 });
 
 test('the default trusts no proxy, so X-Forwarded-For is ignored', function () {

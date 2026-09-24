@@ -7,6 +7,7 @@ use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -47,6 +48,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'settings.version' => AttachSettingsVersion::class,
             'active' => EnsureUserIsActive::class,
         ]);
+
+        // Contract §1/§2: settings.version runs right after authentication and outside the throttle,
+        // so 429 carries X-Settings-Version/X-Server-Time while 401 (unauthenticated) does not.
+        $middleware->appendToPriorityList(AuthenticatesRequests::class, AttachSettingsVersion::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

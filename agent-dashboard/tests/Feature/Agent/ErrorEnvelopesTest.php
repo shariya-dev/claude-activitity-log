@@ -82,6 +82,43 @@ test('the device throttle answers the rate_limited envelope with Retry-After', f
     $response->assertExactJson(ContractExamples::load('error.rate_limited'));
 });
 
+test('a throttled authenticated request still carries X-Settings-Version and X-Server-Time (contract §1)', function (string $method, string $uri) {
+    $headers = ContractExamples::agentHeaders(Device::factory()->create());
+
+    foreach (range(1, 60) as $attempt) {
+        $this->getJson('/api/agent/v1/sync/status', $headers)->assertOk();
+    }
+
+    $response = $this->json($method, $uri, [], $headers)
+        ->assertHeader('Retry-After')
+        ->assertHeader('X-Settings-Version', '1')
+        ->assertHeader('X-Server-Time', '2026-09-23T12:00:00Z');
+
+    ContractExamples::assertErrorEnvelope($response, 429, 'rate_limited');
+    $response->assertExactJson(ContractExamples::load('error.rate_limited'));
+})->with('authenticated agent endpoints');
+
+test('a throttled disabled device gets 429 with the headers, not 403 (contract §2 order)', function () {
+    $headers = ContractExamples::agentHeaders(Device::factory()->disabled()->create());
+
+    foreach (range(1, 60) as $attempt) {
+        $this->postJson('/api/agent/v1/heartbeat', ContractExamples::load('heartbeat.request'), $headers)->assertForbidden();
+    }
+
+    $response = $this->postJson('/api/agent/v1/sync', ContractExamples::load('sync.request.minimal'), $headers)
+        ->assertHeader('X-Settings-Version', '1')
+        ->assertHeader('X-Server-Time', '2026-09-23T12:00:00Z');
+
+    ContractExamples::assertErrorEnvelope($response, 429, 'rate_limited');
+});
+
+test('a 401 is answered before authentication, so it carries no settings headers (contract §1)', function (string $method, string $uri) {
+    $this->json($method, $uri, [], ['X-Agent-Version' => '1.0.0'])
+        ->assertUnauthorized()
+        ->assertHeaderMissing('X-Settings-Version')
+        ->assertHeaderMissing('X-Server-Time');
+})->with('authenticated agent endpoints');
+
 test('the throttle is checked before device status (contract §2 order)', function () {
     $headers = ContractExamples::agentHeaders(Device::factory()->disabled()->create());
 

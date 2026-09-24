@@ -48,9 +48,9 @@ const definitions = computed<Record<ActionKey, ActionDefinition>>(() => ({
         title: `Disable ${deviceName.value}?`,
         description: 'The agent on this machine will stop syncing immediately.',
         details: [
-            'All agent tokens for this device are revoked, so it can no longer send data.',
+            'The agent keeps its pairing, but every sync is refused; it stops syncing and checks back about once an hour.',
             'All history is kept: sessions, token activity and sync batches stay visible in the dashboard.',
-            'You can enable the device again later; the agent will then need a new pairing code.',
+            'You can enable the device again later; the agent resumes by itself, without a new pairing code.',
         ],
         confirmLabel: 'Disable device',
         url: () => disable(props.device.device_uid).url,
@@ -63,8 +63,8 @@ const definitions = computed<Record<ActionKey, ActionDefinition>>(() => ({
         title: `Enable ${deviceName.value}?`,
         description: 'The device will be marked as active again.',
         details: [
-            'Its previous agent tokens stay revoked, so the agent cannot sync yet.',
-            'Generate a re-pair code and enter it in the agent on this machine before it can sync again.',
+            'The agent resumes syncing on its existing pairing after its next hourly check, usually within an hour.',
+            'No re-pair code is needed. Generate one only if the agent on this machine itself shows that it needs to be re-paired.',
         ],
         confirmLabel: 'Enable device',
         url: () => enable(props.device.device_uid).url,
