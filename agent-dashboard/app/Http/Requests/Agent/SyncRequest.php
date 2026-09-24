@@ -5,6 +5,7 @@ namespace App\Http\Requests\Agent;
 use App\Actions\Ingestion\Support\AgentErrorResponse;
 use App\Models\Device;
 use App\Models\TrackingSetting;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -66,9 +67,21 @@ class SyncRequest extends FormRequest
             'sync.sequence' => ['required', 'integer:strict', 'min:1'],
             ...collect(self::RECORD_ARRAYS)->flatMap(fn (string $key): array => [
                 $key => ['present', 'array', 'list'],
-                $key.'.*' => ['array'],
+                $key.'.*' => ['array', $this->jsonObject(...)],
             ])->all(),
         ];
+    }
+
+    /**
+     * A record must be a JSON object: a decoded JSON list (other than the ambiguous empty `[]`) is not.
+     *
+     * @param  Closure(string): mixed  $fail
+     */
+    public function jsonObject(string $attribute, mixed $value, Closure $fail): void
+    {
+        if (is_array($value) && $value !== [] && array_is_list($value)) {
+            $fail("The {$attribute} field must be an object.");
+        }
     }
 
     public function device(): ?Device

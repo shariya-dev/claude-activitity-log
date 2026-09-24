@@ -54,6 +54,9 @@ class UpsertProjects
             ];
         }
 
+        // Rows shared across devices are locked in key order, so concurrent batches cannot deadlock on them.
+        usort($rows, fn (array $a, array $b): int => strcmp($a['project_key'], $b['project_key']));
+
         Project::query()->upsert($rows, ['project_key'], [
             'name',
             'git_remote' => Upsert::latestNonNull('git_remote'),

@@ -12,12 +12,19 @@ use Carbon\CarbonImmutable;
  */
 final class RecordValidator
 {
-    public const MAX_TOKEN_VALUE = 9007199254740991;
+    /**
+     * Per-field token ceiling (2^40). The contract allows up to 2^53−1, but sums of such values overflow the
+     * BIGINT UNSIGNED session/project/rollup totals after a few hundred rows; no real message comes near 2^40.
+     */
+    public const MAX_TOKEN_VALUE = 1099511627776;
 
     private const TIMESTAMP_PATTERN = '/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?Z$/';
 
-    /** Earliest instant a MySQL TIMESTAMP column accepts. */
-    private const MIN_TIMESTAMP = 1;
+    /**
+     * Earliest accepted instant (1970-01-02T00:00:00Z). MySQL TIMESTAMP starts at 1970-01-01T00:00:01Z in the
+     * connection time zone; a day of margin keeps any connection offset from turning a value into a DB error.
+     */
+    private const MIN_TIMESTAMP = 86400;
 
     /**
      * Field specs: [kind, min length, max length, nullable].

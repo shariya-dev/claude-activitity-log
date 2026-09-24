@@ -50,6 +50,9 @@ class UpsertAccounts
             ];
         }
 
+        // Rows shared across devices are locked in key order, so concurrent batches cannot deadlock on them.
+        usort($rows, fn (array $a, array $b): int => strcmp($a['account_key'], $b['account_key']));
+
         ClaudeAccount::query()->upsert($rows, ['developer_id', 'account_key'], [
             'account_uuid' => Upsert::latestNonNull('account_uuid'),
             'email' => Upsert::latestNonNull('email'),

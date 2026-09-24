@@ -37,6 +37,9 @@ class IngestSyncBatch
 {
     public const STALE_PROCESSING_SECONDS = 120;
 
+    /** Retries on deadlock: shared rows (projects, models) can be locked by another device's batch. */
+    private const TRANSACTION_ATTEMPTS = 3;
+
     public function __construct(
         private readonly GateCategories $gate,
         private readonly UpsertAccounts $accounts,
@@ -76,7 +79,7 @@ class IngestSyncBatch
         }
 
         try {
-            return DB::transaction(fn (): array => $this->ingest($device, $validated, $started));
+            return DB::transaction(fn (): array => $this->ingest($device, $validated, $started), self::TRANSACTION_ATTEMPTS);
         } catch (Throwable $e) {
             $this->recordFailure($device, $batchId, $e, $started);
 

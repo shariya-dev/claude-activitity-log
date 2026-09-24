@@ -84,6 +84,7 @@ class UpsertUsage
 
                 $counted[$key] = $old !== null;
                 $ctx->touchSession($session['id']);
+                $ctx->touchProject($session['project_id']);
                 $ctx->touchDate($ctx->device->id, $recordedOn);
 
                 if ($old !== null && $old['recorded_on'] !== $recordedOn) {
