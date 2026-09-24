@@ -1,0 +1,49 @@
+#!/bin/bash
+# Runs as root after the payload is in place. Registers the per-user LaunchAgent for the user at
+# the console (never a system LaunchDaemon). The service starts at once (RunAtLoad), and its
+# `run` opens pairing in that user's browser while the device is unpaired, so pairing needs no
+# separate step here. Output goes to /var/log/install.log.
+set -u
+
+APP_ROOT="/Library/Application Support/6amAgent"
+NODE="$APP_ROOT/current/runtime/node"
+ENTRY="$APP_ROOT/current/app/agent.cjs"
+LABEL=com.6amtech.agent
+
+log() {
+  echo "6amAgent postinstall: $*"
+}
+
+user=$(/usr/bin/stat -f%Su /dev/console)
+case "$user" in
+  "" | root | loginwindow | _mbsetupuser)
+    log "no user at the console; each user runs: \"$NODE\" \"$ENTRY\" install-service"
+    exit 0
+    ;;
+esac
+uid=$(/usr/bin/id -u "$user")
+
+as_user() {
+  /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" -H "$@"
+}
+
+if ! as_user "$NODE" "$ENTRY" install-service; then
+  log "install-service failed for $user"
+  exit 1
+fi
+log "LaunchAgent $LABEL registered for $user"
+
+# Drop versions that no user's LaunchAgent still runs.
+current=$(/usr/bin/readlink "$APP_ROOT/current")
+for dir in "$APP_ROOT"/*/; do
+  version=$(/usr/bin/basename "$dir")
+  if [ "$version" = current ] || [ "$version" = "$current" ]; then
+    continue
+  fi
+  if ! /usr/bin/grep -qsF "$APP_ROOT/$version/" /Users/*/Library/LaunchAgents/"$LABEL".plist; then
+    /bin/rm -rf "$dir"
+    log "removed unused version $version"
+  fi
+done
+
+exit 0

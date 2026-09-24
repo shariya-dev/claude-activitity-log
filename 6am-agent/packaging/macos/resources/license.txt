@@ -1,0 +1,14 @@
+6AM Agent — Claude Code Activity Monitor
+Copyright (c) 6AM Technologies. All rights reserved.
+
+This software is internal to 6AM Technologies and is licensed only for use on devices of
+6AM Technologies staff, under company policy. It may not be copied, redistributed or used
+outside the company.
+
+What it does: the agent runs in the background as the signed-in user and sends Claude Code
+usage metadata (sessions, projects, models and token counts) to the company monitoring
+dashboard. Prompt text, Git details and network details are sent only when an administrator
+turns those categories on centrally. The agent only reads Claude Code's data folder and never
+changes it.
+
+Uninstall: sudo "/Library/Application Support/6amAgent/current/uninstall.sh"

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Template: build-pkg.sh fills in the version and the host architectures. -->
+<installer-gui-script minSpecVersion="2">
+    <title>6AM Agent</title>
+    <organization>com.6amtech</organization>
+    <license file="license.txt" mime-type="text/plain"/>
+    <options customize="never" require-scripts="true" hostArchitectures="@HOST_ARCHS@"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <allowed-os-versions>
+        <os-version min="13.0"/>
+    </allowed-os-versions>
+    <choices-outline>
+        <line choice="com.6amtech.agent"/>
+    </choices-outline>
+    <choice id="com.6amtech.agent" visible="false" title="6AM Agent">
+        <pkg-ref id="com.6amtech.agent"/>
+    </choice>
+    <pkg-ref id="com.6amtech.agent" version="@VERSION@" onConclusion="none">6amAgent-component.pkg</pkg-ref>
+</installer-gui-script>
