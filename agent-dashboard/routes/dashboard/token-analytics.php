@@ -1,9 +1,8 @@
 <?php
 
-use App\Http\Controllers\Dashboard\PlaceholderController;
+use App\Http\Controllers\Dashboard\TokenAnalyticsController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('analytics/tokens', PlaceholderController::class)
+Route::get('analytics/tokens', TokenAnalyticsController::class)
     ->middleware('can:viewMonitoring')
-    ->defaults('title', 'Token Analytics')
     ->name('analytics.tokens');
