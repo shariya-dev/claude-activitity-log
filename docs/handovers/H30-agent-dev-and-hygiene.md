@@ -1,5 +1,5 @@
 # H30 — Dev Loopback Builds, Build Cache Ignore, state.db Mode
-Status: todo · Follow-up (Wave 6 findings FU-4, FU-6) · parallel with H26–H29, H31 · Branch `handover/H30-agent-hygiene`
+Status: done (b2e8cd5) · Follow-up (Wave 6 findings FU-4, FU-6) · parallel with H26–H29, H31 · Branch `handover/H30-agent-hygiene`
 
 ## Objective
 A `channel: dev` build pointing at `http://127.0.0.1`/`localhost` works as a service without `AGENT_ALLOW_INSECURE_LOCALHOST` (production builds still require HTTPS). `6am-agent/.cache/` is git-ignored. `state.db` (and its WAL/SHM files) are created `0600`.
