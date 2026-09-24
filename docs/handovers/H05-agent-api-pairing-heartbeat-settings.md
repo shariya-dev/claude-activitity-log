@@ -1,5 +1,5 @@
 # H05 — Agent API: Pairing, Registration, Heartbeat, Settings, Device Lifecycle Actions
-Status: todo · Wave 3 · parallel with H06–H10 · Branch `handover/H05-agent-api`
+Status: done (f30c854) · Wave 3 · parallel with H06–H10 · Branch `handover/H05-agent-api`
 
 ## Objective
 Implement every agent endpoint except `/sync`, plus the device-lifecycle actions the dashboard will call (issue pairing code, disable/enable, request manual sync, deregister).
