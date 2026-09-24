@@ -1,0 +1,80 @@
+{
+  "fixture": "subagent",
+  "linesTotal": {
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002.jsonl": 4,
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002/subagents/agent-a1fixture.jsonl": 5
+  },
+  "linesSkipped": {
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002.jsonl": 0,
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002/subagents/agent-a1fixture.jsonl": 0
+  },
+  "partialTrailingBytes": {
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002.jsonl": 0,
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002/subagents/agent-a1fixture.jsonl": 0
+  },
+  "consumedBytes": {
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002.jsonl": 2249,
+    "0b7c1a2e-4f3d-4a8b-9c1d-000000000002/subagents/agent-a1fixture.jsonl": 4026
+  },
+  "sessions": [
+    {
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000002",
+      "first_seen_at": "2026-09-21T10:00:00.000Z",
+      "last_seen_at": "2026-09-21T10:00:30.000Z",
+      "ended_at": null,
+      "claude_code_version": "2.1.274",
+      "entrypoint": "claude-vscode",
+      "git_branch": "main",
+      "model": "claude-haiku-5",
+      "cwd": "/home/dev/projects/demo-app"
+    }
+  ],
+  "usage": [
+    {
+      "source_message_id": "msg_01FIXTUREsubmain000000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000002",
+      "request_id": "req_01FIXTUREsubmain000000001",
+      "model": "claude-opus-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-21T10:00:02.000Z",
+      "input_tokens": 4,
+      "output_tokens": 60,
+      "cache_creation_tokens": 2000,
+      "cache_read_tokens": 10000
+    },
+    {
+      "source_message_id": "msg_01FIXTUREsubagent00000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000002",
+      "request_id": "req_01FIXTUREsubagent00000001",
+      "model": "claude-haiku-5",
+      "is_sidechain": true,
+      "recorded_at": "2026-09-21T10:00:05.000Z",
+      "input_tokens": 10,
+      "output_tokens": 30,
+      "cache_creation_tokens": 5000,
+      "cache_read_tokens": 0
+    },
+    {
+      "source_message_id": "msg_01FIXTUREsubagent00000002",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000002",
+      "request_id": "req_01FIXTUREsubagent00000002",
+      "model": "claude-haiku-5",
+      "is_sidechain": true,
+      "recorded_at": "2026-09-21T10:00:09.000Z",
+      "input_tokens": 2,
+      "output_tokens": 150,
+      "cache_creation_tokens": 400,
+      "cache_read_tokens": 5000
+    }
+  ],
+  "messages": [
+    {
+      "source_message_id": "a2000000-0000-4000-8000-000000000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000002",
+      "role": "user",
+      "content": "Lorem ipsum explore the repository.",
+      "recorded_at": "2026-09-21T10:00:00.000Z"
+    }
+  ],
+  "tokenSums": { "input": 16, "output": 240, "cache_creation": 7400, "cache_read": 15000, "actual": 7656, "total": 22656 }
+}

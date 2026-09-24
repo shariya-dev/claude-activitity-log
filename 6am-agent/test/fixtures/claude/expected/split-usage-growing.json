@@ -1,0 +1,56 @@
+{
+  "fixture": "split-usage-growing.jsonl",
+  "linesTotal": 7,
+  "linesSkipped": 0,
+  "partialTrailingBytes": 0,
+  "consumedBytes": 5695,
+  "sessions": [
+    {
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000005",
+      "first_seen_at": "2026-09-22T08:00:00.000Z",
+      "last_seen_at": "2026-09-22T08:00:06.005Z",
+      "ended_at": null,
+      "claude_code_version": "2.1.274",
+      "entrypoint": "sdk-ts",
+      "git_branch": "main",
+      "model": "claude-opus-5",
+      "cwd": "/home/dev/projects/demo-app"
+    }
+  ],
+  "usage": [
+    {
+      "source_message_id": "msg_01FIXTUREgrowing000000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000005",
+      "request_id": "req_01FIXTUREgrowing000000001",
+      "model": "claude-opus-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-22T08:00:03.000Z",
+      "input_tokens": 6,
+      "output_tokens": 250,
+      "cache_creation_tokens": 500,
+      "cache_read_tokens": 9000
+    },
+    {
+      "source_message_id": "msg_01FIXTUREgrowing000000002",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000005",
+      "request_id": "req_01FIXTUREgrowing000000002",
+      "model": "claude-opus-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-22T08:00:06.000Z",
+      "input_tokens": 4,
+      "output_tokens": 64,
+      "cache_creation_tokens": 100,
+      "cache_read_tokens": 9500
+    }
+  ],
+  "messages": [
+    {
+      "source_message_id": "a6000000-0000-4000-8000-000000000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000005",
+      "role": "user",
+      "content": "Lorem ipsum growing usage prompt.",
+      "recorded_at": "2026-09-22T08:00:00.000Z"
+    }
+  ],
+  "tokenSums": { "input": 10, "output": 314, "cache_creation": 600, "cache_read": 18500, "actual": 924, "total": 19424 }
+}

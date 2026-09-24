@@ -1,0 +1,10 @@
+{
+  "numStartups": 3,
+  "installMethod": "native",
+  "userID": "00000000000000000000000000000000000000000000000000000000abcdef12",
+  "projects": {
+    "/home/dev/projects/demo-app": {
+      "allowedTools": []
+    }
+  }
+}
