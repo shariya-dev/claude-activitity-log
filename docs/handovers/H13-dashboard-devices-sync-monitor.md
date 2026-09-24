@@ -1,5 +1,5 @@
 # H13 — Devices, Agent Health & Sync Monitor (PRD §11, §49–52)
-Status: todo · Wave 4 · parallel with H11, H12, H14–H17 · Branch `handover/H13-devices-sync-monitor`
+Status: done (a4805ab) · Wave 4 · parallel with H11, H12, H14–H17 · Branch `handover/H13-devices-sync-monitor`
 
 ## Objective
 Device list/detail with agent health, device actions (disable, enable, re-pair code, Sync Now), and the Sync Monitoring page.
