@@ -1,0 +1,558 @@
+import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
+import type {
+  ApiErrorCode,
+  HeartbeatRequest,
+  RegisterRequest,
+  SyncRequest,
+} from '../../../src/core/contract/index.js';
+import {
+  API_ERROR_CODES,
+  HTTP_STATUS,
+  HeartbeatResponseSchema,
+  RETRYABLE,
+  RegisterResponseSchema,
+  SyncResponseSchema,
+  SyncStatusResponseSchema,
+  TrackingSettingsSchema,
+} from '../../../src/core/contract/index.js';
+import { ApiError, createApiClient } from '../../../src/core/sync/apiClient.js';
+import type { ApiClient } from '../../../src/core/sync/apiClient.js';
+import { createFakeFetch, type FakeFetch } from '../../helpers/fakes/fetch.js';
+import { createMemoryLogger } from '../../helpers/fakes/logger.js';
+import { EXAMPLES_DIR, listJson, readJson } from '../contract/helpers.js';
+
+const BASE = 'https://monitor.6amtech.com/api/agent/v1';
+const TOKEN = '17|Qm3v8ZyP2tLk9WcR4nHs7XbD1fGj6TaE0uVoYiNp';
+const UA = '6am-agent/1.2.3 (linux; x64)';
+
+const example = (name: string): unknown => readJson(path.join(EXAMPLES_DIR, name));
+const registerReq = example('register.request.json') as RegisterRequest;
+const heartbeatReq = example('heartbeat.request.json') as HeartbeatRequest;
+const syncReq = example('sync.request.minimal.json') as SyncRequest;
+const settingsBody = example('settings.response.json');
+
+function client(
+  fetchImpl: FakeFetch,
+  o: Partial<Parameters<typeof createApiClient>[0]> = {},
+): ApiClient {
+  return createApiClient({
+    baseUrl: BASE,
+    getToken: () => Promise.resolve(TOKEN),
+    fetchImpl,
+    userAgent: UA,
+    ...o,
+  });
+}
+
+async function caught(p: Promise<unknown>): Promise<ApiError> {
+  try {
+    await p;
+  } catch (e) {
+    expect(e).toBeInstanceOf(ApiError);
+    return e as ApiError;
+  }
+  throw new Error('expected the call to reject');
+}
+
+function errorBody(code: ApiErrorCode): unknown {
+  return example(`error.${code}.json`);
+}
+
+beforeEach(() => {
+  vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe('createApiClient: contract examples round-trip', () => {
+  it('register.response.json via POST /register (201)', async () => {
+    const body = example('register.response.json');
+    const f = createFakeFetch({ status: 201, body });
+    await expect(client(f).register(registerReq)).resolves.toEqual(
+      RegisterResponseSchema.parse(body),
+    );
+    expect(f.requests[0]).toMatchObject({ url: `${BASE}/register`, method: 'POST' });
+    expect(JSON.parse(f.requests[0]?.body as string)).toEqual(registerReq);
+  });
+
+  it('settings.response.json via GET /settings', async () => {
+    const f = createFakeFetch({ body: settingsBody });
+    await expect(client(f).settings()).resolves.toEqual(TrackingSettingsSchema.parse(settingsBody));
+    expect(f.requests[0]).toMatchObject({ url: `${BASE}/settings`, method: 'GET', body: null });
+  });
+
+  it('heartbeat.response.json via POST /heartbeat', async () => {
+    const body = example('heartbeat.response.json');
+    const f = createFakeFetch({ body });
+    await expect(client(f).heartbeat(heartbeatReq)).resolves.toEqual(
+      HeartbeatResponseSchema.parse(body),
+    );
+    expect(f.requests[0]).toMatchObject({ url: `${BASE}/heartbeat`, method: 'POST' });
+    expect(JSON.parse(f.requests[0]?.body as string)).toEqual(heartbeatReq);
+  });
+
+  const syncResponses = listJson(EXAMPLES_DIR).filter((n) => n.startsWith('sync.response.'));
+
+  it('has sync.response examples to test', () => {
+    expect(syncResponses.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it.each(syncResponses)('%s via POST /sync', async (name) => {
+    const body = example(name);
+    const f = createFakeFetch({ body });
+    await expect(client(f).sync(syncReq)).resolves.toEqual(SyncResponseSchema.parse(body));
+    expect(f.requests[0]).toMatchObject({ url: `${BASE}/sync`, method: 'POST' });
+    expect(JSON.parse(f.requests[0]?.body as string)).toEqual(syncReq);
+  });
+
+  it('sync-status.response.json via GET /sync/status', async () => {
+    const body = example('sync-status.response.json');
+    const f = createFakeFetch({ body });
+    await expect(client(f).syncStatus()).resolves.toEqual(SyncStatusResponseSchema.parse(body));
+    expect(f.requests[0]).toMatchObject({ url: `${BASE}/sync/status`, method: 'GET' });
+  });
+
+  it('strips a trailing slash from the base URL', async () => {
+    const f = createFakeFetch({ body: settingsBody });
+    await client(f, { baseUrl: `${BASE}/` }).settings();
+    expect(f.requests[0]?.url).toBe(`${BASE}/settings`);
+  });
+});
+
+describe('createApiClient: error envelopes', () => {
+  it.each([...API_ERROR_CODES])(
+    'error.%s.json maps to ApiError with its code, status and retryable',
+    async (code) => {
+      const f = createFakeFetch({ status: HTTP_STATUS[code], body: errorBody(code) });
+      const err = await caught(client(f).sync(syncReq));
+      expect(err.code).toBe(code);
+      expect(err.status).toBe(HTTP_STATUS[code]);
+      expect(err.retryable).toBe(RETRYABLE[code]);
+    },
+  );
+
+  it('takes retryable from the contract table, not the body', async () => {
+    const body = {
+      success: false,
+      error: { code: 'invalid_payload', message: 'x', retryable: true },
+    };
+    const f = createFakeFetch({ status: 422, body });
+    const err = await caught(client(f).sync(syncReq));
+    expect(err).toMatchObject({ code: 'invalid_payload', retryable: false });
+  });
+
+  it('never copies the server error message into ApiError', async () => {
+    const body = {
+      success: false,
+      error: { code: 'persistence_failed', message: 'db leaked secret-xyz', retryable: true },
+    };
+    const f = createFakeFetch({ status: 500, body });
+    const err = await caught(client(f).sync(syncReq));
+    expect(err.message).not.toContain('secret-xyz');
+    expect(err.message).toBe('api error persistence_failed (500)');
+  });
+});
+
+describe('createApiClient: invalid responses are retryable invalid_response', () => {
+  it('schema-invalid 200', async () => {
+    const f = createFakeFetch({ body: { server_time: 'nope' } });
+    const err = await caught(client(f).heartbeat(heartbeatReq));
+    expect(err).toMatchObject({ code: 'invalid_response', status: 200, retryable: true });
+  });
+
+  it('non-JSON 200', async () => {
+    const f = createFakeFetch({ body: 'OK' });
+    const err = await caught(client(f).settings());
+    expect(err).toMatchObject({ code: 'invalid_response', status: 200, retryable: true });
+  });
+
+  it('HTML 502 from a proxy', async () => {
+    const f = createFakeFetch({
+      status: 502,
+      body: '<html><body>Bad Gateway</body></html>',
+      headers: { 'content-type': 'text/html' },
+    });
+    const err = await caught(client(f).sync(syncReq));
+    expect(err).toMatchObject({ code: 'invalid_response', status: 502, retryable: true });
+  });
+
+  it('truncated JSON error body', async () => {
+    const f = createFakeFetch({ status: 500, body: '{"success":false,"error":{"co' });
+    const err = await caught(client(f).sync(syncReq));
+    expect(err).toMatchObject({ code: 'invalid_response', status: 500, retryable: true });
+  });
+
+  it('unknown error code in an otherwise valid envelope', async () => {
+    const body = { success: false, error: { code: 'brand_new', message: 'x', retryable: false } };
+    const f = createFakeFetch({ status: 400, body });
+    const err = await caught(client(f).sync(syncReq));
+    expect(err).toMatchObject({ code: 'invalid_response', status: 400, retryable: true });
+  });
+});
+
+describe('createApiClient: transport failures', () => {
+  it('times out as a retryable timeout', async () => {
+    const f = createFakeFetch('hang');
+    const err = await caught(client(f, { timeoutMs: 10 }).settings());
+    expect(err).toMatchObject({ code: 'timeout', status: null, retryable: true });
+  });
+
+  it('times out while reading a stalled body', async () => {
+    const stalled = new Response(new ReadableStream({ start: () => undefined }), { status: 200 });
+    const f = createFakeFetch(stalled);
+    const err = await caught(client(f, { timeoutMs: 10 }).settings());
+    expect(err).toMatchObject({ code: 'timeout', status: null, retryable: true });
+  });
+
+  it('uses a 30 s default timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = createFakeFetch('hang');
+      const p = caught(client(f).settings());
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await p).code).toBe('timeout');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the timeout timer after a successful request', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = createFakeFetch({ body: settingsBody });
+      await client(f).settings();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('maps a fetch rejection to a retryable network error', async () => {
+    const f = createFakeFetch({ error: new TypeError('fetch failed') });
+    const err = await caught(client(f).heartbeat(heartbeatReq));
+    expect(err).toMatchObject({ code: 'network', status: null, retryable: true });
+  });
+
+  it('maps a body stream failure to a network error', async () => {
+    const broken = new Response(
+      new ReadableStream({ start: (c) => c.error(new Error('socket hang up')) }),
+      { status: 200 },
+    );
+    const f = createFakeFetch(broken);
+    const err = await caught(client(f).settings());
+    expect(err).toMatchObject({ code: 'network', status: null, retryable: true });
+  });
+});
+
+describe('createApiClient: 429 Retry-After', () => {
+  const rateLimited = (retryAfter: string | null, status = 429) => ({
+    status,
+    body: errorBody(status === 429 ? 'rate_limited' : 'persistence_failed'),
+    headers: (retryAfter === null ? {} : { 'Retry-After': retryAfter }) as Record<string, string>,
+  });
+
+  it('reads delta-seconds', async () => {
+    const f = createFakeFetch(rateLimited('42'));
+    const err = await caught(client(f).sync(syncReq));
+    expect(err).toMatchObject({ code: 'rate_limited', status: 429, retryAfterMs: 42_000 });
+  });
+
+  it('reads an HTTP-date relative to now', async () => {
+    const at = new Date(Date.now() + 120_000).toUTCString();
+    const f = createFakeFetch(rateLimited(at));
+    const err = await caught(client(f).sync(syncReq));
+    expect(err.retryAfterMs).toBeGreaterThan(115_000);
+    expect(err.retryAfterMs).toBeLessThanOrEqual(120_000);
+  });
+
+  it('floors a past HTTP-date at 0', async () => {
+    const f = createFakeFetch(rateLimited('Wed, 21 Oct 2015 07:28:00 GMT'));
+    expect((await caught(client(f).sync(syncReq))).retryAfterMs).toBe(0);
+  });
+
+  it('is null when missing or unparseable', async () => {
+    const f = createFakeFetch(rateLimited(null), rateLimited('soon'));
+    expect((await caught(client(f).sync(syncReq))).retryAfterMs).toBeNull();
+    expect((await caught(client(f).sync(syncReq))).retryAfterMs).toBeNull();
+  });
+
+  it('is ignored on non-429 responses', async () => {
+    const f = createFakeFetch(rateLimited('42', 500));
+    expect((await caught(client(f).sync(syncReq))).retryAfterMs).toBeNull();
+  });
+});
+
+describe('createApiClient: transport security', () => {
+  const make = (baseUrl: string): ApiClient => client(createFakeFetch(), { baseUrl });
+
+  it('accepts https', () => {
+    expect(() => make(BASE)).not.toThrow();
+  });
+
+  it('rejects http: for remote hosts even with the env var', () => {
+    vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', '1');
+    expect(() => make('http://monitor.6amtech.com/api/agent/v1')).toThrow(/https/);
+  });
+
+  it('rejects http://127.0.0.1 without AGENT_ALLOW_INSECURE_LOCALHOST=1', () => {
+    expect(() => make('http://127.0.0.1:8000/api/agent/v1')).toThrow(/https/);
+    vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', 'true');
+    expect(() => make('http://127.0.0.1:8000/api/agent/v1')).toThrow(/https/);
+  });
+
+  it('allows http://127.0.0.1 and http://localhost with AGENT_ALLOW_INSECURE_LOCALHOST=1', async () => {
+    vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', '1');
+    const f = createFakeFetch({ body: settingsBody });
+    await client(f, { baseUrl: 'http://127.0.0.1:8000/api/agent/v1' }).settings();
+    expect(f.requests[0]?.url).toBe('http://127.0.0.1:8000/api/agent/v1/settings');
+    expect(() => make('http://localhost/api/agent/v1')).not.toThrow();
+  });
+
+  it('rejects other protocols', () => {
+    vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', '1');
+    expect(() => make('ftp://localhost/api')).toThrow(/https/);
+    expect(() => make('file:///tmp/api')).toThrow(/https/);
+  });
+});
+
+describe('createApiClient: request encoding', () => {
+  it('does not gzip bodies up to 64 KB', async () => {
+    const f = createFakeFetch({ body: example('sync.response.minimal.json') });
+    await client(f).sync(syncReq);
+    const req = f.requests[0];
+    expect(typeof req?.body).toBe('string');
+    expect(req?.headers['content-encoding']).toBeUndefined();
+    expect(req?.headers['content-type']).toBe('application/json');
+  });
+
+  it('gzips bodies over 64 KB with Content-Encoding: gzip', async () => {
+    const big: SyncRequest = {
+      ...syncReq,
+      agent: { ...syncReq.agent, claude_code_version: 'x'.repeat(70 * 1024) },
+    };
+    const f = createFakeFetch({ body: example('sync.response.minimal.json') });
+    await client(f).sync(big);
+    const req = f.requests[0];
+    expect(req?.headers['content-encoding']).toBe('gzip');
+    expect(req?.headers['content-type']).toBe('application/json');
+    expect(Buffer.isBuffer(req?.body)).toBe(true);
+    const inflated = gunzipSync(req?.body as Buffer).toString('utf8');
+    expect(JSON.parse(inflated)).toEqual(big);
+    expect((req?.body as Buffer).byteLength).toBeLessThan(64 * 1024);
+  });
+
+  it('measures the 64 KB threshold in UTF-8 bytes, not characters', async () => {
+    const multiByte: SyncRequest = {
+      ...syncReq,
+      agent: { ...syncReq.agent, claude_code_version: 'é'.repeat(40 * 1024) },
+    };
+    const f = createFakeFetch({ body: example('sync.response.minimal.json') });
+    await client(f).sync(multiByte);
+    expect(f.requests[0]?.headers['content-encoding']).toBe('gzip');
+  });
+
+  it('replaces lone UTF-16 surrogates with U+FFFD in every string sent', async () => {
+    const dirty: SyncRequest = {
+      ...syncReq,
+      agent: { ...syncReq.agent, platform_version: 'a\uD800b', claude_code_version: 'c\uDC00' },
+      sessions: syncReq.sessions.map((s) => ({ ...s, source_session_id: 'ok😀' })),
+    };
+    const f = createFakeFetch({ body: example('sync.response.minimal.json') });
+    await client(f).sync(dirty);
+    const raw = f.requests[0]?.body as string;
+    expect(raw).not.toMatch(/\\ud[89a-f][0-9a-f]{2}/i);
+    const sent = JSON.parse(raw) as SyncRequest;
+    expect(sent.agent.platform_version).toBe('a�b');
+    expect(sent.agent.claude_code_version).toBe('c�');
+    expect(sent.sessions[0]?.source_session_id).toBe('ok😀');
+  });
+});
+
+describe('createApiClient: headers', () => {
+  it('sends Accept, User-Agent, X-Agent-Version and Bearer token', async () => {
+    const f = createFakeFetch({ body: settingsBody });
+    await client(f).settings();
+    expect(f.requests[0]?.headers).toEqual({
+      accept: 'application/json',
+      'user-agent': UA,
+      'x-agent-version': '1.2.3',
+      authorization: `Bearer ${TOKEN}`,
+    });
+  });
+
+  it('omits X-Agent-Version when the User-Agent has no version', async () => {
+    const f = createFakeFetch({ body: settingsBody });
+    await client(f, { userAgent: 'something-else' }).settings();
+    expect(f.requests[0]?.headers['x-agent-version']).toBeUndefined();
+    expect(f.requests[0]?.headers['user-agent']).toBe('something-else');
+  });
+
+  it('/register sends no Authorization and never asks for a token', async () => {
+    const getToken = vi.fn(() => Promise.resolve(TOKEN));
+    const f = createFakeFetch({ status: 201, body: example('register.response.json') });
+    await client(f, { getToken }).register(registerReq);
+    expect(f.requests[0]?.headers.authorization).toBeUndefined();
+    expect(f.requests[0]?.headers['x-agent-version']).toBe('1.2.3');
+    expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it('a null token fails with unauthenticated without calling fetch', async () => {
+    const f = createFakeFetch();
+    const api = client(f, { getToken: () => Promise.resolve(null) });
+    for (const call of [
+      () => api.settings(),
+      () => api.heartbeat(heartbeatReq),
+      () => api.sync(syncReq),
+      () => api.syncStatus(),
+      () => api.deregister(),
+    ]) {
+      const err = await caught(call());
+      expect(err).toMatchObject({ code: 'unauthenticated', status: null, retryable: false });
+    }
+    expect(f.requests).toHaveLength(0);
+  });
+
+  it('propagates a credential store failure unchanged without calling fetch', async () => {
+    const boom = new Error('keychain locked');
+    const logger = createMemoryLogger();
+    const f = createFakeFetch();
+    const api = client(f, { getToken: () => Promise.reject(boom), logger });
+    await expect(api.settings()).rejects.toBe(boom);
+    expect(f.requests).toHaveLength(0);
+    expect(logger.entries).toHaveLength(0);
+  });
+
+  it('uses the global fetch when no fetchImpl is given', async () => {
+    const f = createFakeFetch({ body: settingsBody });
+    vi.stubGlobal('fetch', f);
+    try {
+      const api = createApiClient({
+        baseUrl: BASE,
+        getToken: () => Promise.resolve(TOKEN),
+        userAgent: UA,
+      });
+      await api.settings();
+      expect(f.requests).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('never puts the token in logs or ApiError messages', async () => {
+    const logger = createMemoryLogger();
+    const f = createFakeFetch(
+      { body: settingsBody },
+      { status: 401, body: errorBody('unauthenticated') },
+      { error: new TypeError(`fetch failed Bearer ${TOKEN}`) },
+      'hang',
+    );
+    const api = client(f, { logger, timeoutMs: 10 });
+    await api.settings();
+    const errors = [
+      await caught(api.sync(syncReq)),
+      await caught(api.heartbeat(heartbeatReq)),
+      await caught(api.settings()),
+    ];
+    expect(f.requests.every((r) => r.headers.authorization === `Bearer ${TOKEN}`)).toBe(true);
+    for (const e of errors) {
+      expect(e.message).not.toContain(TOKEN);
+      expect(e.message).not.toContain('Bearer');
+    }
+    expect(logger.entries.length).toBeGreaterThanOrEqual(4);
+    expect(logger.text()).not.toContain(TOKEN);
+    expect(logger.text()).not.toMatch(/authorization|bearer/i);
+    expect(logger.text()).not.toContain(syncReq.sync.batch_id);
+  });
+});
+
+describe('createApiClient: logging', () => {
+  it('logs method, path, status and duration for each request, and failures by code', async () => {
+    const logger = createMemoryLogger();
+    const f = createFakeFetch(
+      { body: settingsBody },
+      { status: 409, body: errorBody('batch_in_progress') },
+    );
+    const api = client(f, { logger });
+    await api.settings();
+    await caught(api.sync(syncReq));
+    const fields = logger.entries.map((e) => e.fields);
+    expect(fields[0]).toMatchObject({ method: 'GET', path: '/settings', status: 200 });
+    expect(typeof fields[0]?.ms).toBe('number');
+    expect(fields).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/sync',
+        code: 'batch_in_progress',
+        status: 409,
+      }),
+    );
+    for (const f2 of fields) {
+      expect(
+        Object.keys(f2 ?? {}).every((k) => ['method', 'path', 'status', 'ms', 'code'].includes(k)),
+      ).toBe(true);
+    }
+  });
+});
+
+describe('createApiClient: deregister', () => {
+  it('resolves on 204 with an empty body', async () => {
+    const f = createFakeFetch({ status: 204 });
+    await expect(client(f).deregister()).resolves.toBeUndefined();
+    expect(f.requests[0]).toMatchObject({ url: `${BASE}/deregister`, method: 'POST', body: null });
+    expect(f.requests[0]?.headers['content-type']).toBeUndefined();
+  });
+
+  it('treats 401 as already deregistered (contract §3.6)', async () => {
+    const f = createFakeFetch({ status: 401, body: errorBody('unauthenticated') });
+    await expect(client(f).deregister()).resolves.toBeUndefined();
+  });
+
+  it('still fails on other errors', async () => {
+    const f = createFakeFetch({ status: 500, body: errorBody('persistence_failed') });
+    expect((await caught(client(f).deregister())).code).toBe('persistence_failed');
+  });
+});
+
+describe('createApiClient: X-Settings-Version tracking', () => {
+  it('is null before any response', () => {
+    expect(client(createFakeFetch()).lastSettingsVersion()).toBeNull();
+  });
+
+  it('tracks the header on success and error responses, null when absent or invalid', async () => {
+    const f = createFakeFetch(
+      { body: settingsBody, headers: { 'X-Settings-Version': '7' } },
+      { status: 409, body: errorBody('batch_in_progress'), headers: { 'X-Settings-Version': '8' } },
+      { status: 502, body: '<html>', headers: { 'X-Settings-Version': '9' } },
+      { body: settingsBody },
+      { body: settingsBody, headers: { 'X-Settings-Version': 'abc' } },
+      { body: settingsBody, headers: { 'X-Settings-Version': '0' } },
+      { body: settingsBody, headers: { 'X-Settings-Version': '10' } },
+      { error: new TypeError('fetch failed') },
+    );
+    const api = client(f);
+    await api.settings();
+    expect(api.lastSettingsVersion()).toBe(7);
+    await caught(api.sync(syncReq));
+    expect(api.lastSettingsVersion()).toBe(8);
+    await caught(api.sync(syncReq));
+    expect(api.lastSettingsVersion()).toBe(9);
+    await api.settings();
+    expect(api.lastSettingsVersion()).toBeNull();
+    await api.settings();
+    expect(api.lastSettingsVersion()).toBeNull();
+    await api.settings();
+    expect(api.lastSettingsVersion()).toBeNull();
+    await api.settings();
+    expect(api.lastSettingsVersion()).toBe(10);
+    await caught(api.settings());
+    expect(api.lastSettingsVersion()).toBe(10);
+  });
+});
