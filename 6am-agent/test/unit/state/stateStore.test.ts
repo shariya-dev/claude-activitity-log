@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -29,6 +29,37 @@ describe('stateStore', () => {
   afterEach(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it.skipIf(process.platform === 'win32')('creates state.db and its WAL/SHM files 0600', () => {
+    store.set('sync_sequence', 1);
+    for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+      expect(existsSync(f)).toBe(true);
+      expect(statSync(f).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'tightens an existing 0644 state.db to 0600 on open',
+    () => {
+      store.close();
+      chmodSync(dbPath, 0o644);
+      for (const f of [`${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (existsSync(f)) chmodSync(f, 0o644);
+      }
+      store = openStateStore(dbPath);
+      store.set('sync_sequence', 2);
+      for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+        expect(statSync(f).mode & 0o777).toBe(0o600);
+      }
+    },
+  );
+
+  it('opens an in-memory store without touching the filesystem', () => {
+    const mem = openStateStore(':memory:');
+    mem.set('sync_sequence', 3);
+    expect(mem.get('sync_sequence')).toBe(3);
+    mem.close();
   });
 
   it('returns null for unset keys and round-trips typed kv values', () => {
