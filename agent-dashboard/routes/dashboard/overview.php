@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\Dashboard\OverviewController;
 use Illuminate\Support\Facades\Route;
 
-Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+Route::get('dashboard', OverviewController::class)
+    ->middleware('can:viewMonitoring')
+    ->name('dashboard');
