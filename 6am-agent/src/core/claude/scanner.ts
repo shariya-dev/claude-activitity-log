@@ -26,7 +26,12 @@ import { readAccount } from './accountReader.js';
 import type { ClaudeDataSource } from './discovery.js';
 import { fileIdentity, nodeFs, type FsLike, type StatLike } from './fs.js';
 import { readOriginRemote } from './gitRemote.js';
-import { BLOCK_SIZE, readCompleteLines } from './jsonlTailReader.js';
+import {
+  BLOCK_SIZE,
+  readLineBatches,
+  type JsonPathSegment,
+  type StringElision,
+} from './jsonlTailReader.js';
 import { parseLine, type LineGates, type ParsedLine } from './lineParser.js';
 import { truncateUnits, wellFormed } from './text.js';
 import { listTranscriptFiles, type TranscriptFile } from './transcriptFiles.js';
@@ -41,6 +46,55 @@ export interface ClaudeScannerDeps {
 const NAME_MAX = 191;
 const REMOTE_MAX = 255;
 const NO_GATES: LineGates = { model: false, git: false, prompt: false };
+/**
+ * Strings at other paths longer than this are elided while reading. Every path `parseLine`
+ * reads is kept at any length, so this only bounds what an unlisted path can carry. Keys longer
+ * than this are elided too, so it must stay well above the longest key read (`entrypoint`).
+ */
+const UNREAD_STRING_UNITS = 256;
+/** Top-level string fields `parseLine` reads (lineParser.ts). */
+const PARSED_FIELDS: ReadonlySet<JsonPathSegment> = new Set([
+  'type',
+  'sessionId',
+  'uuid',
+  'timestamp',
+  'cwd',
+  'version',
+  'entrypoint',
+  'gitBranch',
+  'requestId',
+]);
+
+/** Paths of every string `parseLine` reads: the fields above, `message.model`, `message.id`. */
+function isParsedPath(path: readonly JsonPathSegment[]): boolean {
+  if (path.length === 1) return PARSED_FIELDS.has(path[0]!);
+  return path.length === 2 && path[0] === 'message' && (path[1] === 'model' || path[1] === 'id');
+}
+
+/** What `extractPrompt` reads: `message.content`, its parts' `type`/`text`, `origin.kind`. */
+function isPromptPath(path: readonly JsonPathSegment[]): boolean {
+  if (path[0] === 'origin') return path.length === 2 && path[1] === 'kind';
+  if (path[0] !== 'message' || path[1] !== 'content') return false;
+  return (
+    path.length === 2 ||
+    (path.length === 4 && typeof path[2] === 'number' && (path[3] === 'text' || path[3] === 'type'))
+  );
+}
+
+const isPromptOrParsedPath = (path: readonly JsonPathSegment[]) =>
+  isParsedPath(path) || isPromptPath(path);
+
+/**
+ * How transcripts are read (H31): string values no parsed field uses (tool results, file
+ * contents, thinking text, tool inputs) are elided in the reader, so they never become strings
+ * or parsed JSON. `parseLine` returns exactly what it returns for the full line.
+ */
+export function transcriptElision(gates: LineGates): StringElision {
+  return {
+    maxUnits: UNREAD_STRING_UNITS,
+    keep: gates.prompt ? isPromptOrParsedPath : isParsedPath,
+  };
+}
 
 /** Newest line seen across scans: feeds `claudeCodeVersion()` and `lastLocalActivityAt()`. */
 class ActivityTracker {
@@ -87,6 +141,7 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
       git: categories.git,
       prompt: categories.prompt,
     };
+    const elision = transcriptElision(gates);
     const since = opts.since === null ? null : opts.since.getTime();
     // Read once per scan. `observed_at` is only a same-length stand-in for the chunk byte
     // budget: `stampAccount` sets the real value from each chunk's own data.
@@ -96,6 +151,11 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
         : null;
 
     const identities = new Map<string, ProjectIdentity>();
+    /** Synchronous when known (undefined: not resolved yet), so most lines await nothing. */
+    function knownIdentity(cwd: string | null): ProjectIdentity | null | undefined {
+      if (!categories.project || cwd === null) return null;
+      return identities.get(cwd);
+    }
     async function identityFor(cwd: string | null): Promise<ProjectIdentity | null> {
       if (!categories.project || cwd === null) return null;
       const cached = identities.get(cwd);
@@ -174,25 +234,31 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
       let launchPending = file.kind === 'main' && start === 0;
       let consumed = start;
       try {
-        for await (const raw of readCompleteLines(fs, file.path, start, stat.size)) {
-          const line = parseLine(raw.text, gates);
-          if (line !== null) {
-            tracker.observe(line);
-            if (launchPending && line.cwd !== null && line.sessionId !== null) {
-              launchPending = false;
-              agg.observeLaunch(line.sessionId, line.cwd, await identityFor(line.cwd));
-            }
-            if (isRecordLine(line, since)) {
-              const project = await identityFor(line.cwd);
-              if (agg.hasRecords() && !agg.fits(line, project)) {
-                agg.setCheckpoint(partial(consumed));
-                yield stampAccount(agg.takeChunk());
+        const batches = readLineBatches(fs, file.path, start, stat.size, BLOCK_SIZE, elision);
+        for await (const batch of batches) {
+          for (const raw of batch) {
+            const line = parseLine(raw.text, gates);
+            if (line !== null) {
+              tracker.observe(line);
+              if (launchPending && line.cwd !== null && line.sessionId !== null) {
+                launchPending = false;
+                let launch = knownIdentity(line.cwd);
+                if (launch === undefined) launch = await identityFor(line.cwd);
+                agg.observeLaunch(line.sessionId, line.cwd, launch);
               }
-              agg.add(line, project);
+              if (isRecordLine(line, since)) {
+                let project = knownIdentity(line.cwd);
+                if (project === undefined) project = await identityFor(line.cwd);
+                if (agg.hasRecords() && !agg.fits(line, project)) {
+                  agg.setCheckpoint(partial(consumed));
+                  yield stampAccount(agg.takeChunk());
+                }
+                agg.add(line, project);
+              }
             }
+            agg.countLine(file.path, line === null);
+            consumed = raw.end;
           }
-          agg.countLine(file.path, line === null);
-          consumed = raw.end;
         }
       } catch {
         // Unreadable file: keep what was consumed, retry the rest next cycle.
@@ -223,10 +289,14 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
     if (newest === null) return;
     const start = Math.max(0, newest.stat.size - BLOCK_SIZE);
     try {
-      for await (const raw of readCompleteLines(fs, newest.path, start, newest.stat.size)) {
-        if (raw.start === start && start > 0) continue; // may begin mid-line
-        const line = parseLine(raw.text, NO_GATES);
-        if (line !== null) tracker.observe(line);
+      const elision = transcriptElision(NO_GATES);
+      const end = newest.stat.size;
+      for await (const batch of readLineBatches(fs, newest.path, start, end, BLOCK_SIZE, elision)) {
+        for (const raw of batch) {
+          if (raw.start === start && start > 0) continue; // may begin mid-line
+          const line = parseLine(raw.text, NO_GATES);
+          if (line !== null) tracker.observe(line);
+        }
       }
     } catch {
       // Unreadable: stay unknown.
