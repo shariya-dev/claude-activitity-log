@@ -42,6 +42,8 @@ type Props = {
     trend: TrendPoint[];
     breakdown: BreakdownRow[];
     breakdownLimit: number;
+    breakdownTruncated: boolean;
+    rangeFallback: boolean;
 };
 
 const props = defineProps<Props>();
@@ -69,12 +71,6 @@ const granularityCaption = computed(() => {
 
     return props.granularity.auto ? `Auto (${label})` : label;
 });
-
-const isTruncated = computed(
-    () =>
-        props.breakdownLimit > 0 &&
-        props.breakdown.length >= props.breakdownLimit,
-);
 
 function visit(changes: Record<string, string | null>): void {
     const origin =
@@ -132,6 +128,14 @@ function onMetricChange(event: Event): void {
             class="flex flex-col gap-4 rounded-xl border p-4"
         >
             <DateRangeFilter :range="range" />
+            <p
+                v-if="rangeFallback"
+                role="status"
+                class="text-sm text-amber-700 dark:text-amber-300"
+            >
+                The custom date range was invalid, so This Week is shown
+                instead.
+            </p>
             <EntityFilters :options="options" :values="filters" />
             <div class="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:gap-6">
                 <div class="flex flex-col gap-1.5">
@@ -284,9 +288,10 @@ function onMetricChange(event: Event): void {
                 :metric-total="metricTotal"
                 :dimension-label="breakdownLabel"
             />
-            <p v-if="isTruncated" class="text-xs text-muted-foreground">
-                Showing the top {{ breakdownLimit }} by Total Token Activity;
-                shares are of the filtered total.
+            <p v-if="breakdownTruncated" class="text-xs text-muted-foreground">
+                Showing the top {{ breakdownLimit }} by Total Token Activity,
+                sorted by {{ selectedMetric.label }}; shares are of the filtered
+                total.
             </p>
         </section>
 

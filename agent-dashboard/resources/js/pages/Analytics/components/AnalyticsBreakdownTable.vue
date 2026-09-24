@@ -144,11 +144,8 @@ function formatShare(value: number | null): string {
                             {{ formatTokens(row[column.field]) }}
                         </td>
                     </template>
-                    <td
-                        class="px-4 py-2.5 text-right tabular-nums"
-                        :title="formatTokensFull(row.message_count)"
-                    >
-                        {{ formatTokens(row.message_count) }}
+                    <td class="px-4 py-2.5 text-right tabular-nums">
+                        {{ formatTokensFull(row.message_count) }}
                     </td>
                 </tr>
             </tbody>

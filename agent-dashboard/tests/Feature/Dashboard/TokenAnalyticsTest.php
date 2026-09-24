@@ -71,7 +71,7 @@ function assertAnalyticsConsistent(TestResponse $response): void
     $totals = array_intersect_key($props['totals'], array_flip(ANALYTICS_PAGE_METRICS));
 
     expect(analyticsPageSum($props['trend']))->toBe($totals, 'sum of trend points must equal totals')
-        ->and(count($props['breakdown']))->toBeLessThan($props['breakdownLimit'])
+        ->and($props['breakdownTruncated'])->toBeFalse('the breakdown must be complete to sum to totals')
         ->and(analyticsPageSum($props['breakdown']))->toBe($totals, 'sum of the full breakdown must equal totals');
 }
 
@@ -126,6 +126,8 @@ test('the page renders with defaults and every prop', function () {
             ->where('group', 'developer')
             ->where('metric', 'total')
             ->where('breakdownLimit', 25)
+            ->where('breakdownTruncated', false)
+            ->where('rangeFallback', false)
             ->where('totals.message_count', 23)
             ->where('totals.actual_consumed_tokens', 23 * 60)
             ->where('totals.total_token_activity', 23 * 460)
@@ -155,6 +157,20 @@ test('trend and full breakdown sum to totals for every dimension filter and grou
     'project' => ['project', 'api'],
     'model' => ['model', 'sonnet'],
 ])->with(['developer', 'device', 'account', 'project', 'model']);
+
+test('trend and full breakdown sum to totals for every dimension filter at every granularity', function (string $param, string $model, string $granularity) {
+    $response = analyticsPage([...ANALYTICS_PAGE_ALL_TIME, $param => $this->{$model}->id, 'granularity' => $granularity, 'group' => 'model']);
+
+    assertAnalyticsConsistent($response);
+
+    expect($response->inertiaProps('granularity.value'))->toBe($granularity);
+})->with([
+    'developer' => ['developer', 'bob'],
+    'device' => ['device', 'aliceMac'],
+    'account' => ['account', 'work'],
+    'project' => ['project', 'cms'],
+    'model' => ['model', 'opus'],
+])->with(['day', 'week', 'month', 'year']);
 
 test('trend and full breakdown sum to totals for every granularity', function (string $granularity, int $points) {
     $response = analyticsPage([...ANALYTICS_PAGE_ALL_TIME, 'granularity' => $granularity, 'group' => 'project']);
@@ -196,6 +212,7 @@ test('invalid dates and ids fall back to defaults', function (array $query) {
     assertAnalyticsConsistent($response);
 
     expect($response->inertiaProps('range'))->toBe(['preset' => 'week', 'from' => '2026-09-21', 'to' => '2026-09-27'])
+        ->and($response->inertiaProps('rangeFallback'))->toBe(($query['range'] ?? null) === 'custom')
         ->and($response->inertiaProps('filters'))->toBe(['developer' => null, 'device' => null, 'account' => null, 'project' => null, 'model' => null])
         ->and($response->inertiaProps('totals.message_count'))->toBe(23);
 })->with([
@@ -207,6 +224,16 @@ test('invalid dates and ids fall back to defaults', function (array $query) {
     'custom arrays' => [['range' => 'custom', 'from' => ['2026-09-01'], 'to' => ['2026-09-30']]],
     'bad ids' => [['developer' => 'abc', 'device' => '-3', 'account' => '0', 'project' => ['1'], 'model' => '1.5']],
 ]);
+
+test('an invalid custom range keeps the dimension filters', function () {
+    $response = analyticsPage(['range' => 'custom', 'from' => '2026-09-30', 'to' => '2026-09-01', 'developer' => $this->bob->id]);
+
+    assertAnalyticsConsistent($response);
+
+    expect($response->inertiaProps('rangeFallback'))->toBeTrue()
+        ->and($response->inertiaProps('filters.developer'))->toBe($this->bob->id)
+        ->and($response->inertiaProps('totals.message_count'))->toBe(15);
+});
 
 test('a valid custom range is used as given', function () {
     $response = analyticsPage(['range' => 'custom', 'from' => '2026-09-01', 'to' => '2026-09-30']);
@@ -223,17 +250,23 @@ test('granularity is chosen automatically from the range length', function () {
         ->and(analyticsPage(['range' => 'year'])->inertiaProps('granularity'))->toBe(['value' => 'month', 'auto' => true]);
 });
 
-test('the breakdown is limited to 25 rows', function () {
-    foreach (range(1, 30) as $i) {
+test('the breakdown is limited to 25 rows and says when rows were cut', function (int $projects, int $rows, bool $truncated) {
+    UsageDailyRollup::query()->delete();
+
+    foreach (range(1, $projects) as $i) {
         analyticsPageRollup('2026-09-23', $this->aliceMac, Project::factory()->create(['name' => "Project {$i}"]), null, null, $i);
     }
 
     analyticsPage(['group' => 'project'])
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->has('breakdown', 25)
-            ->where('breakdown.0.label', 'Project 30'));
-});
+            ->has('breakdown', $rows)
+            ->where('breakdown.0.label', "Project {$projects}")
+            ->where('breakdownTruncated', $truncated));
+})->with([
+    'exactly 25' => [25, 25, false],
+    'more than 25' => [30, 25, true],
+]);
 
 test('the PRD section 20 example shows 650,000 / 150,000 / 500,000', function () {
     UsageDailyRollup::query()->delete();

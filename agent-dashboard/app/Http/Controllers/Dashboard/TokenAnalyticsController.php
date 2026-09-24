@@ -25,15 +25,18 @@ class TokenAnalyticsController extends Controller
 
     public function __invoke(Request $request, TokenAnalytics $analytics, FilterOptions $options): Response
     {
-        $filters = $this->filters($request);
+        [$filters, $rangeFallback] = $this->filters($request);
         $explicit = Granularity::tryFrom($this->param($request, 'granularity'));
         $granularity = $explicit ?? Granularity::auto($filters->range);
         $group = Dimension::tryFrom($this->param($request, 'group')) ?? Dimension::Developer;
         $metric = $this->param($request, 'metric');
         $metric = in_array($metric, self::METRICS, true) ? $metric : self::METRICS[0];
+        // One extra row tells whether the breakdown was cut at the limit.
+        $breakdown = $analytics->breakdown($filters, $group, self::BREAKDOWN_LIMIT + 1);
 
         return Inertia::render('Analytics/Tokens', [
             'range' => $filters->range->toArray(),
+            'rangeFallback' => $rangeFallback,
             'filters' => [
                 'developer' => $filters->developerId,
                 'device' => $filters->deviceId,
@@ -47,20 +50,23 @@ class TokenAnalyticsController extends Controller
             'metric' => $metric,
             'totals' => $analytics->totals($filters),
             'trend' => $analytics->trend($filters, $granularity),
-            'breakdown' => $analytics->breakdown($filters, $group, self::BREAKDOWN_LIMIT),
+            'breakdown' => array_slice($breakdown, 0, self::BREAKDOWN_LIMIT),
             'breakdownLimit' => self::BREAKDOWN_LIMIT,
+            'breakdownTruncated' => count($breakdown) > self::BREAKDOWN_LIMIT,
         ]);
     }
 
     /**
      * An invalid custom date range falls back to the default preset, keeping the dimension filters.
+     *
+     * @return array{UsageFilters, bool} the filters and whether the date range fell back
      */
-    private function filters(Request $request): UsageFilters
+    private function filters(Request $request): array
     {
         try {
-            return UsageFilters::fromRequest($request);
+            return [UsageFilters::fromRequest($request), false];
         } catch (ValidationException) {
-            return UsageFilters::fromRequest($request->duplicate($request->except(['range', 'from', 'to'])));
+            return [UsageFilters::fromRequest($request->duplicate($request->except(['range', 'from', 'to']))), true];
         }
     }
 

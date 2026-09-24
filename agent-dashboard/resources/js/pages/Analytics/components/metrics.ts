@@ -74,7 +74,11 @@ export const groupDefinitions: {
 }[] = [
     { key: 'developer', label: 'Developer', columnLabel: 'Developer' },
     { key: 'device', label: 'Device', columnLabel: 'Device' },
-    { key: 'account', label: 'Account', columnLabel: 'Claude Account' },
+    {
+        key: 'account',
+        label: 'Claude Account',
+        columnLabel: 'Claude Account',
+    },
     { key: 'project', label: 'Project', columnLabel: 'Project' },
     { key: 'model', label: 'Model', columnLabel: 'Model' },
 ];
