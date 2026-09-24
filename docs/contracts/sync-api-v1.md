@@ -347,7 +347,7 @@ The agent always sends **valid** records. zod and the JSON Schemas describe a fu
 | `display_name` | string | yes | 1..191 |
 | `organization_uuid` | string | yes | 1..64 |
 | `organization_name` | string | yes | 1..191 |
-| `observed_at` | datetime | no | When the agent read `~/.claude.json` (`oauthAccount`) |
+| `observed_at` | datetime | no | The newest `last_seen_at` among the chunk's sessions (derived from the data, never the clock, so a retry is byte-identical, §8.2). An account is sent only with sessions. |
 
 The agent sends an empty string as `null`: every string field has a minimum length of 1.
 
