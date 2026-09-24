@@ -32,11 +32,12 @@ test('agent route files are loaded under the api/agent/v1 prefix with api middle
     });
 });
 
-test('dashboard route files are loaded with web, auth and verified middleware', function () {
+test('dashboard route files are loaded with web, auth and active middleware', function () {
     withProbeRouteFile('dashboard', 'probe.dashboard', function ($route) {
         expect($route)->not->toBeNull()
             ->and($route->uri())->toBe('route-loading-probe')
-            ->and($route->gatherMiddleware())->toContain('web', 'auth', 'verified');
+            ->and($route->gatherMiddleware())->toContain('web', 'auth', 'active')
+            ->not->toContain('verified');
     });
 });
 
@@ -45,7 +46,8 @@ test('the dashboard route is served from the dashboard route files', function ()
 
     expect($route)->not->toBeNull()
         ->and($route->uri())->toBe('dashboard')
-        ->and($route->gatherMiddleware())->toContain('web', 'auth', 'verified');
+        ->and($route->gatherMiddleware())->toContain('web', 'auth', 'active')
+        ->not->toContain('verified');
 });
 
 test('there is no api.php route file', function () {

@@ -4,8 +4,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('returns a successful response', function () {
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
+test('the home page sends guests to the login page', function () {
+    $this->get(route('home'))->assertRedirect(route('login'));
 });

@@ -67,7 +67,7 @@ test('monitor timezone and flash keys are shared', function () {
 });
 
 test('guests get null can on public pages', function () {
-    $this->get(route('home'))
+    $this->get(route('login'))
         ->assertInertia(fn (Assert $page) => $page->where('auth.user', null)->where('can', null));
 });
 
