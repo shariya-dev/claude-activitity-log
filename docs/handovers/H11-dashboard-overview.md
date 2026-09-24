@@ -1,5 +1,5 @@
 # H11 — Organization Overview Dashboard (PRD §43)
-Status: todo · Wave 4 · parallel with H12–H17 (and Wave 5) · Branch `handover/H11-dashboard-overview`
+Status: done (a03001c) · Wave 4 · parallel with H12–H17 (and Wave 5) · Branch `handover/H11-dashboard-overview`
 
 ## Objective
 Replace the starter kit dashboard with the organization overview: KPIs, token metrics, trend, top breakdowns, recent activity, and offline/stale agents, all driven by the date filter.
