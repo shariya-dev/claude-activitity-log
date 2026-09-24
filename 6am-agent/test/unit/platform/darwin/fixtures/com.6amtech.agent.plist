@@ -7,6 +7,7 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Library/Application Support/6amAgent/1.0.0/runtime/node</string>
+		<string>--max-semi-space-size=8</string>
 		<string>/Library/Application Support/6amAgent/1.0.0/app/agent.cjs</string>
 		<string>run</string>
 	</array>

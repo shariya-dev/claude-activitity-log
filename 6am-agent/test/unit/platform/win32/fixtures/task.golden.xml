@@ -48,7 +48,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>C:\Windows\System32\conhost.exe</Command>
-      <Arguments>--headless "C:\Users\Zoë O&amp;Brien\AppData\Local\Programs\6amAgent\runtime\node.exe" "C:\Users\Zoë O&amp;Brien\AppData\Local\Programs\6amAgent\app\agent.cjs" run</Arguments>
+      <Arguments>--headless "C:\Users\Zoë O&amp;Brien\AppData\Local\Programs\6amAgent\runtime\node.exe" --max-semi-space-size=8 "C:\Users\Zoë O&amp;Brien\AppData\Local\Programs\6amAgent\app\agent.cjs" run</Arguments>
       <WorkingDirectory>C:\Users\Zoë O&amp;Brien\AppData\Local\6amAgent</WorkingDirectory>
     </Exec>
   </Actions>

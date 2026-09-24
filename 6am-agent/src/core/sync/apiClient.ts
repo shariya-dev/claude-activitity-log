@@ -21,6 +21,13 @@ import {
   TrackingSettingsSchema,
 } from '../contract/index.js';
 import type { Logger } from '../runtime/logger.js';
+import {
+  ResponseBodyError,
+  createHttpTransport,
+  fetchTransport,
+  type HttpTransport,
+  type TransportResponse,
+} from './httpTransport.js';
 
 export interface ApiClient {
   register(req: RegisterRequest): Promise<RegisterResponse>;
@@ -141,7 +148,7 @@ function checkedBaseUrl(baseUrl: string, allowInsecureLoopback: boolean): string
   return trimmed;
 }
 
-/** Rejects when the signal aborts, so a fetch or body read that ignores the signal still times out. */
+/** Rejects when the signal aborts, so a request or body read that ignores the signal still times out. */
 function whenAborted(signal: AbortSignal): Promise<never> {
   return new Promise<never>((_resolve, reject) => {
     signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
@@ -156,6 +163,9 @@ function whenAborted(signal: AbortSignal): Promise<never> {
 export function createApiClient(o: {
   baseUrl: string;
   getToken: () => Promise<string | null>;
+  /** HTTP transport; defaults to the node:http/https one (createHttpTransport). */
+  transport?: HttpTransport;
+  /** Test seam: send through this `fetch` instead (ignored when `transport` is given). */
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   userAgent: string;
@@ -164,7 +174,9 @@ export function createApiClient(o: {
   allowInsecureLoopback?: boolean;
 }): ApiClient {
   const baseUrl = checkedBaseUrl(o.baseUrl, o.allowInsecureLoopback === true);
-  const fetchImpl = o.fetchImpl ?? fetch;
+  const transport =
+    o.transport ??
+    (o.fetchImpl === undefined ? createHttpTransport() : fetchTransport(o.fetchImpl));
   const timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const agentVersion = /^6am-agent\/(\S+)/.exec(o.userAgent)?.[1] ?? null;
   let settingsVersion: number | null = null;
@@ -209,13 +221,14 @@ export function createApiClient(o: {
         ? new ApiError({ code: 'timeout', status: null, retryable: true })
         : new ApiError({ code: 'network', status: null, retryable: true });
     try {
-      let res: Response;
+      let res: TransportResponse;
       try {
         res = await Promise.race([
-          fetchImpl(`${baseUrl}${path}`, {
+          transport({
+            url: `${baseUrl}${path}`,
             method,
             headers,
-            body: payload,
+            ...(payload === undefined ? {} : { body: payload }),
             signal: controller.signal,
           }),
           aborted,
@@ -223,14 +236,15 @@ export function createApiClient(o: {
       } catch {
         throw transportError();
       }
-      settingsVersion = positiveInt(res.headers.get('x-settings-version'));
+      settingsVersion = positiveInt(res.header('x-settings-version'));
       let text: string;
       try {
         text = await Promise.race([res.text(), aborted]);
-      } catch {
+      } catch (err) {
+        if (err instanceof ResponseBodyError) throw invalidResponse(res.status);
         throw transportError();
       }
-      return { status: res.status, text, retryAfter: res.headers.get('retry-after') };
+      return { status: res.status, text, retryAfter: res.header('retry-after') };
     } finally {
       clearTimeout(timer);
     }

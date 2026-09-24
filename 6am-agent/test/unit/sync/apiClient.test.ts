@@ -1,3 +1,5 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -487,20 +489,18 @@ describe('createApiClient: headers', () => {
     expect(logger.entries).toHaveLength(0);
   });
 
-  it('uses the global fetch when no fetchImpl is given', async () => {
-    const f = createFakeFetch({ body: settingsBody });
-    vi.stubGlobal('fetch', f);
-    try {
-      const api = createApiClient({
-        baseUrl: BASE,
-        getToken: () => Promise.resolve(TOKEN),
-        userAgent: UA,
-      });
-      await api.settings();
-      expect(f.requests).toHaveLength(1);
-    } finally {
-      vi.unstubAllGlobals();
-    }
+  it('prefers an injected transport over fetchImpl', async () => {
+    const f = createFakeFetch();
+    const transport = vi.fn(() =>
+      Promise.resolve({
+        status: 200,
+        header: () => null,
+        text: () => Promise.resolve(JSON.stringify(settingsBody)),
+      }),
+    );
+    await client(f, { transport }).settings();
+    expect(transport).toHaveBeenCalledOnce();
+    expect(f.requests).toHaveLength(0);
   });
 
   it('never puts the token in logs or ApiError messages', async () => {
@@ -611,5 +611,162 @@ describe('createApiClient: X-Settings-Version tracking', () => {
     expect(api.lastSettingsVersion()).toBe(10);
     await caught(api.settings());
     expect(api.lastSettingsVersion()).toBe(10);
+  });
+});
+
+describe('createApiClient: default node:http transport', () => {
+  interface Seen {
+    method: string;
+    url: string;
+    headers: IncomingMessage['headers'];
+    body: Buffer;
+  }
+  let server: Server | null = null;
+
+  afterEach(async () => {
+    const s = server;
+    server = null;
+    if (s === null) return;
+    s.closeAllConnections();
+    await new Promise<void>((resolve) => s.close(() => resolve()));
+  });
+
+  async function serve(
+    handler: (res: ServerResponse) => void,
+  ): Promise<{ base: string; seen: Seen[] }> {
+    const seen: Seen[] = [];
+    server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        seen.push({
+          method: req.method ?? '',
+          url: req.url ?? '',
+          headers: req.headers,
+          body: Buffer.concat(chunks),
+        });
+        handler(res);
+      });
+    });
+    const s = server;
+    await new Promise<void>((resolve) => s.listen(0, '127.0.0.1', resolve));
+    const { port } = s.address() as AddressInfo;
+    return { base: `http://127.0.0.1:${port}/api/agent/v1`, seen };
+  }
+
+  const reply =
+    (status: number, body: unknown, headers: Record<string, string> = {}) =>
+    (res: ServerResponse) => {
+      res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
+      res.end(JSON.stringify(body));
+    };
+
+  const local = (base: string, o: Partial<Parameters<typeof createApiClient>[0]> = {}) =>
+    createApiClient({
+      baseUrl: base,
+      getToken: () => Promise.resolve(TOKEN),
+      userAgent: UA,
+      allowInsecureLoopback: true,
+      ...o,
+    });
+
+  it('is used instead of the global fetch and sends the contract headers', async () => {
+    const globalFetch = vi.fn(() => Promise.reject(new Error('global fetch used')));
+    vi.stubGlobal('fetch', globalFetch);
+    try {
+      const { base, seen } = await serve(reply(200, settingsBody, { 'X-Settings-Version': '4' }));
+      const api = local(base);
+      await expect(api.settings()).resolves.toEqual(TrackingSettingsSchema.parse(settingsBody));
+      expect(api.lastSettingsVersion()).toBe(4);
+      expect(globalFetch).not.toHaveBeenCalled();
+      expect(seen[0]).toMatchObject({ method: 'GET', url: '/api/agent/v1/settings' });
+      expect(seen[0]?.headers).toMatchObject({
+        accept: 'application/json',
+        'user-agent': UA,
+        'x-agent-version': '1.2.3',
+        authorization: `Bearer ${TOKEN}`,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends small bodies as JSON and large bodies gzipped', async () => {
+    const ok = example('sync.response.minimal.json');
+    const { base, seen } = await serve(reply(200, ok));
+    const api = local(base);
+    await api.sync(syncReq);
+    const big: SyncRequest = {
+      ...syncReq,
+      agent: { ...syncReq.agent, claude_code_version: 'x'.repeat(70 * 1024) },
+    };
+    await api.sync(big);
+    expect(seen[0]?.headers['content-type']).toBe('application/json');
+    expect(seen[0]?.headers['content-encoding']).toBeUndefined();
+    expect(JSON.parse(seen[0]?.body.toString('utf8') ?? '')).toEqual(syncReq);
+    expect(seen[1]?.headers['content-encoding']).toBe('gzip');
+    expect(seen[1]?.headers['content-length']).toBe(String(seen[1]?.body.byteLength));
+    expect(JSON.parse(gunzipSync(seen[1]?.body ?? Buffer.alloc(0)).toString('utf8'))).toEqual(big);
+  });
+
+  it('maps error envelopes and 429 Retry-After', async () => {
+    const { base } = await serve(reply(429, errorBody('rate_limited'), { 'Retry-After': '7' }));
+    const err = await caught(local(base).sync(syncReq));
+    expect(err).toMatchObject({ code: 'rate_limited', status: 429, retryAfterMs: 7000 });
+  });
+
+  it('maps a proxy HTML page to invalid_response', async () => {
+    const { base } = await serve((res) => {
+      res.writeHead(502, { 'Content-Type': 'text/html' });
+      res.end('<html>Bad Gateway</html>');
+    });
+    const err = await caught(local(base).sync(syncReq));
+    expect(err).toMatchObject({ code: 'invalid_response', status: 502, retryable: true });
+  });
+
+  it('maps a body in an unsupported Content-Encoding to invalid_response', async () => {
+    const { base } = await serve((res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'zstd' });
+      res.end('{}');
+    });
+    const err = await caught(local(base).settings());
+    expect(err).toMatchObject({ code: 'invalid_response', status: 200, retryable: true });
+  });
+
+  it('maps an oversized response body to invalid_response', async () => {
+    const { base } = await serve((res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(`"${'x'.repeat(5 * 1024 * 1024)}"`);
+    });
+    const err = await caught(local(base).settings());
+    expect(err).toMatchObject({ code: 'invalid_response', status: 200, retryable: true });
+  });
+
+  it('times out a server that never answers', async () => {
+    const { base } = await serve(() => undefined);
+    const err = await caught(local(base, { timeoutMs: 50 }).settings());
+    expect(err).toMatchObject({ code: 'timeout', status: null, retryable: true });
+  });
+
+  it('maps a refused connection to a retryable network error', async () => {
+    const { base } = await serve(() => undefined);
+    const s = server;
+    server = null;
+    await new Promise<void>((resolve) => s?.close(() => resolve()));
+    const err = await caught(local(base).heartbeat(heartbeatReq));
+    expect(err).toMatchObject({ code: 'network', status: null, retryable: true });
+  });
+
+  it('maps an unresolvable host to a retryable transport failure', async () => {
+    const api = createApiClient({
+      baseUrl: 'https://agent-h33.invalid/api/agent/v1',
+      getToken: () => Promise.resolve(TOKEN),
+      userAgent: UA,
+      timeoutMs: 1500,
+    });
+    const err = await caught(api.settings());
+    // NXDOMAIN is `network`; a resolver that never answers ends as `timeout`. Both retry (§9.3).
+    expect(['network', 'timeout']).toContain(err.code);
+    expect(err).toMatchObject({ status: null, retryable: true });
   });
 });

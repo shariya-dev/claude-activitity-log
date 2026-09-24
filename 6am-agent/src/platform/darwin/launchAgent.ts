@@ -10,6 +10,13 @@ import { BIN, commandFailed, type ExecFn } from './exec.js';
 
 export const LAUNCH_AGENT_LABEL = 'com.6amtech.agent';
 
+/**
+ * V8 flags for the long-running agent (H33): 8 MB young-generation semispaces instead of 16 MB
+ * keep the initial sync's peak RSS under the 120 MB target. They must be on the node command line
+ * (v8.setFlagsFromString is too late to resize the heap).
+ */
+export const AGENT_NODE_FLAGS = ['--max-semi-space-size=8'] as const;
+
 const SERVICE_NOT_FOUND = 113;
 const BOOTOUT_POLLS = 20;
 const BOOTOUT_POLL_MS = 250;
@@ -39,7 +46,7 @@ export function renderLaunchAgentPlist(o: {
 	<key>ProgramArguments</key>
 	<array>
 		<string>${xml(o.nodePath)}</string>
-		<string>${xml(o.entryPath)}</string>
+${AGENT_NODE_FLAGS.map((f) => `\t\t<string>${xml(f)}</string>\n`).join('')}		<string>${xml(o.entryPath)}</string>
 		<string>run</string>
 	</array>
 	<key>RunAtLoad</key>

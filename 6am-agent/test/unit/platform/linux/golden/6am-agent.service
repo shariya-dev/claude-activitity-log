@@ -3,7 +3,7 @@ Description=6AM Technologies Claude Code activity agent
 
 [Service]
 Type=simple
-ExecStart="/opt/6am-agent/runtime/node" "/opt/6am-agent/app/agent.cjs" run
+ExecStart="/opt/6am-agent/runtime/node" --max-semi-space-size=8 "/opt/6am-agent/app/agent.cjs" run
 Restart=always
 RestartSec=30
 Nice=10
