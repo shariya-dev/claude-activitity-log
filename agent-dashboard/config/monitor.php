@@ -18,6 +18,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Reverse proxies whose X-Forwarded-* headers are honoured: a comma list of
+    | IPs/CIDRs, or `*` for any. Empty (the default) trusts none, so the request
+    | IP is the direct peer.
+    |
+    */
+
+    'trusted_proxies' => (string) env('MONITOR_TRUSTED_PROXIES', ''),
+
+    /*
+    |--------------------------------------------------------------------------
     | Agent Health Thresholds
     |--------------------------------------------------------------------------
     */

@@ -11,7 +11,8 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Re-activates a disabled device (any other status is left untouched). Its tokens stay revoked, so the agent must pair again before it can sync.
+ * Re-activates a disabled device (any other status is left untouched). DisableDevice kept its token,
+ * so the agent resumes syncing after its next hourly probe, without a re-pair.
  */
 class EnableDevice
 {

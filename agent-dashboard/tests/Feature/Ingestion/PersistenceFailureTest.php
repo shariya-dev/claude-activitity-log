@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Ingestion\IngestSyncBatch;
 use App\Actions\Ingestion\RefreshDailyRollups;
 use App\Enums\SyncBatchStatus;
 use App\Enums\SyncHealth;
@@ -77,4 +78,21 @@ test('a failure inside the transaction returns 500, writes nothing and a retry o
     expect($state->health)->toBe(SyncHealth::Healthy)
         ->and($state->consecutive_failures)->toBe(0)
         ->and($state->sequence)->toBe(42);
+});
+
+test('an unexpected failure outside the ingest transaction is a 500 persistence_failed envelope that leaks nothing', function () {
+    config(['app.debug' => true]);
+    ingestionDevice();
+    $mock = Mockery::mock(IngestSyncBatch::class);
+    $mock->shouldReceive('handle')->andThrow(new RuntimeException('SQLSTATE[HY000] secret-value-7f3a'));
+    $this->instance(IngestSyncBatch::class, $mock);
+
+    $response = postSync(ingestionExample('sync.request.full.json'))
+        ->assertStatus(500)
+        ->assertHeader('X-Settings-Version')
+        ->assertExactJson(ingestionExample('error.persistence_failed.json'));
+
+    expect($response->getContent())->not->toContain('secret-value-7f3a')
+        ->not->toContain('RuntimeException')
+        ->and(ingestionTableCounts())->each->toBe(0);
 });
