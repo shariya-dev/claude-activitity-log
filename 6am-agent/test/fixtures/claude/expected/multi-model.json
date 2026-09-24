@@ -4,6 +4,13 @@
   "linesSkipped": 0,
   "partialTrailingBytes": 0,
   "consumedBytes": 5769,
+  "projects": [
+    {
+      "path": "/home/dev/projects/demo-app",
+      "first_seen_at": "2026-09-20T09:00:00.000Z",
+      "last_seen_at": "2026-09-20T09:05:08.000Z"
+    }
+  ],
   "sessions": [
     {
       "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000003",
@@ -14,7 +21,7 @@
       "entrypoint": "sdk-cli",
       "git_branch": "main",
       "model": "claude-opus-5",
-      "cwd": "/home/dev/projects/demo-app"
+      "project_path": "/home/dev/projects/demo-app"
     }
   ],
   "usage": [

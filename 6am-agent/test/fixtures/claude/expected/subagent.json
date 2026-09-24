@@ -16,6 +16,18 @@
     "0b7c1a2e-4f3d-4a8b-9c1d-000000000002.jsonl": 2249,
     "0b7c1a2e-4f3d-4a8b-9c1d-000000000002/subagents/agent-a1fixture.jsonl": 4026
   },
+  "projects": [
+    {
+      "path": "/home/dev/projects/demo-app",
+      "first_seen_at": "2026-09-21T10:00:00.000Z",
+      "last_seen_at": "2026-09-21T10:00:30.000Z"
+    },
+    {
+      "path": "/home/dev/projects/demo-app/packages/api",
+      "first_seen_at": "2026-09-21T10:00:06.000Z",
+      "last_seen_at": "2026-09-21T10:00:09.000Z"
+    }
+  ],
   "sessions": [
     {
       "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000002",
@@ -25,8 +37,8 @@
       "claude_code_version": "2.1.274",
       "entrypoint": "claude-vscode",
       "git_branch": "main",
-      "model": "claude-haiku-5",
-      "cwd": "/home/dev/projects/demo-app"
+      "model": "claude-opus-5",
+      "project_path": "/home/dev/projects/demo-app"
     }
   ],
   "usage": [

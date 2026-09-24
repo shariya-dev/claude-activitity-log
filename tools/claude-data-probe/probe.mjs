@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Privacy-safe structure probe for Claude Code's local data directory.
 //
-// Prints STRUCTURE AND STATISTICS ONLY: key names, JSON types, counts, allowlisted
-// enum values and hashes. It never outputs prompt text, paths, emails, hostnames,
-// branch names, cwd values, display names or project directory names.
+// Prints STRUCTURE AND STATISTICS ONLY: allowlisted key names, JSON types, counts,
+// strictly validated enum values and hashes. It never outputs prompt text, paths,
+// emails, hostnames, branch names, cwd values, display names or project directory
+// names, and refuses to write a report that contains any of them (backstop guard).
 //
 // Usage: node probe.mjs [--dir <claudeDataDir>] [--global-config <.claude.json>]
 //                       [--out report.json] [--compare <previous report.json>]
+// Env:   PROBE_INLINE_BYTES=<n>  total transcript bytes below which no worker threads are used.
+// Tests: node --test tools/claude-data-probe/probe.test.mjs
 // Zero dependencies (node: built-ins only), ESM, Node >= 18, macOS/Windows/Linux.
 
 import { createHash } from 'node:crypto';
@@ -15,58 +18,137 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 
-const PROBE_VERSION = '1.0.0';
+const PROBE_VERSION = '1.1.0';
 const KEY_RE = /^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$/;
-const VALUE_RE = /^[A-Za-z0-9._:<>+-]{1,64}$/;
-const NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
+// Keys that look like generated ids (tool-use ids, many digits) are data, not schema.
+const ID_LIKE_RE = /^[A-Za-z]{2,10}_[A-Za-z0-9]{12,}$|(?:\d\D*){6,}/;
+const CONFIG_KEY_RE = /^[a-z][A-Za-z0-9]{0,63}$/;
 const TS_SHAPE_RE = /^[dTZ:.+\- ]{1,40}$/;
 const EXT_RE = /^\.[A-Za-z0-9]{1,10}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const END_MARKER_RE = /end|exit|close|stop|summary/i;
 const MAX_DEPTH = 3; // max path segments in the per-type key census
-const USAGE_DEPTH = 2; // max path segments inside message.usage
-const MAP_THRESHOLD = 40; // objects with more keys are treated as maps
+const MAP_THRESHOLD = 40; // allowlisted objects with more keys are treated as maps
 const ENUM_CAP = 40; // distinct values reported per enum path
 const ENUM_HARD_CAP = 5000; // distinct values tracked per enum path before folding into '<other>'
-const HASH_WINDOW = 4096;
-const INLINE_BYTES = 64 * 1024 * 1024; // below this total, skip worker threads
 const HISTORY_LINES = 500;
+const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'];
+const COMMON_BRANCHES = new Set(['main', 'master', 'develop', 'dev', 'trunk']);
 
-// Enum paths whose values are counted (dotted paths into each line object).
-const ENUM_PATHS = [
-  'type',
-  'version',
-  'entrypoint',
-  'userType',
-  'message.model',
-  'message.role',
-  'message.stop_reason',
-  'subtype',
-  'operation',
-  'isSidechain',
-  'isMeta',
-  'permissionMode',
-  'level',
-].map((p) => [p, p.split('.')]);
+// Below this many transcript bytes, scan inline instead of spawning workers.
+const INLINE_BYTES = (() => {
+  const n = Number(process.env.PROBE_INLINE_BYTES);
+  return process.env.PROBE_INLINE_BYTES !== undefined && process.env.PROBE_INLINE_BYTES !== '' && Number.isFinite(n)
+    ? n
+    : 64 * 1024 * 1024;
+})();
+
+// Only these object paths are descended in the key census; every other nested value
+// is recorded with its JSON type only (tool results, MCP payloads, snapshots, maps...).
+const SCHEMA_PARENTS = new Set([
+  'message',
+  'message.usage',
+  'message.usage.cache_creation',
+  'message.usage.server_tool_use',
+  'message.usage.output_tokens_details',
+  'message.context_management',
+  'message.diagnostics',
+  'attachment',
+  'error',
+  'compactMetadata',
+  'origin',
+  'commandRun',
+]);
+const USAGE_PARENTS = new Set(['cache_creation', 'server_tool_use', 'output_tokens_details']);
+
+// Strict per-field value patterns for enums.
+const LOWER = /^[a-z][a-z0-9_-]{0,40}$/;
+const CAMEL = /^[a-z][A-Za-z0-9_-]{0,40}$/;
+const BOOL = /^(true|false)$/;
+const VERSION = /^\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/;
+const MODEL = /^(claude-[a-z0-9.-]{1,60}|<synthetic>)$/;
+const LINE_ENUMS = [
+  ['type', LOWER],
+  ['version', VERSION],
+  ['entrypoint', LOWER],
+  ['userType', LOWER],
+  ['message.model', MODEL],
+  ['message.role', LOWER],
+  ['message.stop_reason', LOWER],
+  ['subtype', LOWER],
+  ['operation', LOWER],
+  ['isSidechain', BOOL],
+  ['isMeta', BOOL],
+  ['permissionMode', CAMEL],
+  ['level', LOWER],
+].map(([p, re]) => [p, p.split('.'), re]);
+
+// Leading tags of string user content that mark non-prompt (command/hook/system) text.
+const KNOWN_TAGS = new Set([
+  'command-name',
+  'command-message',
+  'command-args',
+  'local-command-stdout',
+  'local-command-stderr',
+  'local-command-caveat',
+  'bash-input',
+  'bash-stdout',
+  'bash-stderr',
+  'task-notification',
+  'system-reminder',
+  'user-prompt-submit-hook',
+]);
+
+// Top-level data-dir entries whose names may be printed.
+const KNOWN_DATA_ENTRIES = new Set([
+  'projects',
+  'sessions',
+  'history.jsonl',
+  'settings.json',
+  'settings.local.json',
+  'plugins',
+  'cache',
+  'backups',
+  'chrome',
+  'commands',
+  'downloads',
+  'file-history',
+  'ide',
+  'paste-cache',
+  'plans',
+  'session-env',
+  'shell-snapshots',
+  'skills',
+  'state',
+  'tasks',
+  'telemetry',
+  'todos',
+  'statsig',
+  'logs',
+  'agents',
+  '.credentials.json',
+  '.last-cleanup',
+  '.last-update-result.json',
+  'mcp-needs-auth-cache.json',
+]);
 
 // ---------------------------------------------------------------- helpers
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const jsonType = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v === 'object' ? 'object' : typeof v);
-// Keys that fail the pattern, or look like generated ids (e.g. tool-use ids, many digits), are data, not schema.
-const ID_LIKE_RE = /^[A-Za-z]{2,10}_[A-Za-z0-9]{12,}$|(?:\d\D*){6,}/;
 const safeKey = (k) => (KEY_RE.test(k) && !ID_LIKE_RE.test(k) ? k : '<dynamic>');
-const safeName = (n) => (NAME_RE.test(n) ? n : '<redacted>');
 const sha16 = (data) => createHash('sha256').update(data).digest('hex').slice(0, 16);
 const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : null);
 const inc = (map, key, by = 1) => map.set(key, (map.get(key) || 0) + by);
+const baseName = (p) => p.split(/[\\/]/).filter(Boolean).pop() || '';
 
-// Sanitised enum value: only short, path/email-free tokens survive.
-function enumValue(v) {
+// Sanitised enum value: must match the field's pattern, else '<redacted>'.
+function enumValue(v, re) {
   if (v === undefined) return '<none>';
   if (v === null || typeof v === 'object') return `<${jsonType(v)}>`;
   const s = String(v);
   if (s === '') return '<empty>';
-  return VALUE_RE.test(s) ? s : '<redacted>';
+  return re.test(s) ? s : '<redacted>';
 }
 
 function getPath(obj, segs) {
@@ -78,10 +160,10 @@ function getPath(obj, segs) {
   return cur;
 }
 
-function countEnum(acc, p, value) {
+function countEnum(acc, p, value, re) {
   let m = acc.enums.get(p);
   if (!m) acc.enums.set(p, (m = new Map()));
-  const v = enumValue(value);
+  const v = enumValue(value, re);
   if (!m.has(v) && m.size >= ENUM_HARD_CAP) inc(m, '<other>');
   else inc(m, v);
 }
@@ -98,7 +180,7 @@ function record(map, p, t, lineNo) {
   return e;
 }
 
-// Flatten an object into dotted key paths (≤ MAX_DEPTH segments) with JSON types.
+// Flatten into dotted key paths with JSON types, descending only into SCHEMA_PARENTS.
 function census(obj, prefix, depth, map, lineNo) {
   for (const k of Object.keys(obj)) {
     const v = obj[k];
@@ -106,12 +188,12 @@ function census(obj, prefix, depth, map, lineNo) {
     let t = jsonType(v);
     if (t === 'object' && Object.keys(v).length > MAP_THRESHOLD) t = '<map>';
     record(map, p, t, lineNo);
-    if (t === 'object' && depth < MAX_DEPTH) census(v, p, depth + 1, map, lineNo);
+    if (t === 'object' && depth < MAX_DEPTH && SCHEMA_PARENTS.has(p)) census(v, p, depth + 1, map, lineNo);
   }
 }
 
-// Flatten message.usage (≤ USAGE_DEPTH segments) into leaves and feed the usage census.
-function flattenUsage(acc, u, prefix, depth, out, lineNo) {
+// Flatten message.usage (known sub-objects only) into leaves and feed the usage census.
+function flattenUsage(acc, u, prefix, out, lineNo) {
   for (const k of Object.keys(u)) {
     const v = u[k];
     const p = prefix ? `${prefix}.${safeKey(k)}` : safeKey(k);
@@ -125,12 +207,19 @@ function flattenUsage(acc, u, prefix, depth, out, lineNo) {
         acc.usage.negativeValues++;
       }
     }
-    if (t === 'object' && depth < USAGE_DEPTH && Object.keys(v).length <= MAP_THRESHOLD) {
-      flattenUsage(acc, v, p, depth + 1, out, lineNo);
+    if (t === 'object' && !prefix && USAGE_PARENTS.has(k) && Object.keys(v).length <= MAP_THRESHOLD) {
+      flattenUsage(acc, v, p, out, lineNo);
     } else {
       out[p] = v;
     }
   }
+}
+
+function leadingTag(content) {
+  const t = content.trimStart();
+  if (t[0] !== '<') return 'none';
+  const m = /^<([a-z][a-z0-9-]{0,40})(?=[\s>/])/.exec(t);
+  return m && KNOWN_TAGS.has(m[1]) ? m[1] : '<other-tag>';
 }
 
 // ---------------------------------------------------------------- accumulator
@@ -145,9 +234,24 @@ function newAcc() {
     tsShapes: new Map(),
     assistantUsageLines: 0,
     missingMessageId: 0,
-    ids: new Map(), // message.id -> { entries: [{ f, u }], files, sessions, reqs, models }
+    requestIdMissing: { synthetic: 0, nonSynthetic: 0 },
+    ids: new Map(), // message.id -> { entries: [{ f, u, stop }], files, sessions, reqs, models }
     sessions: new Map(), // sessionId -> { files, cwds, models, branches, versions }
     sidechain: { main: new Map(), subagent: new Map(), other: new Map() },
+    userLines: {
+      total: 0,
+      isCompactSummary: 0,
+      isVisibleInTranscriptOnly: 0,
+      isMeta: 0,
+      isSidechain: 0,
+      stringContent: 0,
+      leadingTag: new Map(),
+      queueOperationStringContent: 0,
+      systemStringContent: 0,
+    },
+    // Values that must never appear in the report (kept in memory only).
+    sensitive: { cwds: new Set(), branches: new Set() },
+    unreadable: new Map(),
     perFile: [],
   };
 }
@@ -164,21 +268,15 @@ function scanFile(acc, fi, prev) {
     size,
     ino: st.ino.toString(),
     mtimeMs: Number(st.mtimeNs) / 1e6,
-    head: sha16(buf.subarray(0, Math.min(HASH_WINDOW, size))),
-    tail: sha16(buf.subarray(Math.max(0, size - HASH_WINDOW), size)),
+    full: sha16(buf),
     endsWithNewline: size === 0 || buf[size - 1] === 10,
     lastType: null,
     sidLines: 0,
     sidMismatch: 0,
     cwds: fi.kind === 'main' ? new Set() : null,
-    prevHeadCheck: null,
-    prevTailCheck: null,
+    // For --compare: hash of the bytes the previous snapshot covered.
+    prevPrefix: prev && size > prev.size ? sha16(buf.subarray(0, prev.size)) : null,
   };
-  // For --compare: hash the byte ranges the previous snapshot hashed.
-  if (prev && size >= prev.size) {
-    pf.prevHeadCheck = sha16(buf.subarray(0, Math.min(HASH_WINDOW, prev.size)));
-    pf.prevTailCheck = sha16(buf.subarray(Math.max(0, prev.size - HASH_WINDOW), prev.size));
-  }
 
   const ctx = { prevTs: NaN };
   let pos = 0;
@@ -212,7 +310,7 @@ function scanFile(acc, fi, prev) {
 
 function analyzeLine(acc, obj, fi, pf, ctx) {
   const lineNo = ++acc.lineNo;
-  const type = enumValue(obj.type);
+  const type = enumValue(obj.type, LOWER);
   pf.lastType = type;
 
   let lt = acc.lineTypes.get(type);
@@ -221,19 +319,38 @@ function analyzeLine(acc, obj, fi, pf, ctx) {
   census(obj, '', 1, lt.keys, lineNo);
 
   // Allowlisted enums.
-  for (const [p, segs] of ENUM_PATHS) {
+  for (const [p, segs, re] of LINE_ENUMS) {
     const v = getPath(obj, segs);
-    if (v !== undefined) countEnum(acc, p, v);
+    if (v !== undefined) countEnum(acc, p, v, re);
   }
   const msg = isObj(obj.message) ? obj.message : null;
   if (msg && Array.isArray(msg.content)) {
-    for (const part of msg.content) if (isObj(part)) countEnum(acc, 'message.content[].type', part.type);
+    for (const part of msg.content) if (isObj(part)) countEnum(acc, 'message.content[].type', part.type, LOWER);
   }
-  if (obj.type === 'user' && msg && 'content' in msg) {
-    countEnum(acc, 'user:message.content(kind)', jsonType(msg.content));
-    if (Array.isArray(msg.content)) {
-      for (const part of msg.content) if (isObj(part)) countEnum(acc, 'user:message.content[].type', part.type);
+
+  // User-line evidence for prompt exclusion rules.
+  if (obj.type === 'user') {
+    const u = acc.userLines;
+    u.total++;
+    if (obj.isCompactSummary === true) u.isCompactSummary++;
+    if (obj.isVisibleInTranscriptOnly === true) u.isVisibleInTranscriptOnly++;
+    if (obj.isMeta === true) u.isMeta++;
+    if (obj.isSidechain === true) u.isSidechain++;
+    if ('promptSource' in obj) countEnum(acc, 'user:promptSource', obj.promptSource, LOWER);
+    if (isObj(obj.origin) && 'kind' in obj.origin) countEnum(acc, 'user:origin.kind', obj.origin.kind, LOWER);
+    if (msg && 'content' in msg) {
+      countEnum(acc, 'user:message.content(kind)', jsonType(msg.content), LOWER);
+      if (typeof msg.content === 'string') {
+        u.stringContent++;
+        inc(u.leadingTag, leadingTag(msg.content));
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) if (isObj(part)) countEnum(acc, 'user:message.content[].type', part.type, LOWER);
+      }
     }
+  } else if (obj.type === 'queue-operation' && typeof obj.content === 'string') {
+    acc.userLines.queueOperationStringContent++;
+  } else if (obj.type === 'system' && typeof obj.content === 'string') {
+    acc.userLines.systemStringContent++;
   }
 
   // Timestamp shape and ordering.
@@ -261,16 +378,17 @@ function analyzeLine(acc, obj, fi, pf, ctx) {
     acc.usage.lines++;
     if (obj.type !== 'assistant') acc.usage.nonAssistant++;
     const flat = {};
-    flattenUsage(acc, msg.usage, '', 1, flat, lineNo);
+    flattenUsage(acc, msg.usage, '', flat, lineNo);
     if (obj.type === 'assistant') {
       acc.assistantUsageLines++;
+      if (typeof obj.requestId !== 'string') acc.requestIdMissing[model === '<synthetic>' ? 'synthetic' : 'nonSynthetic']++;
       if (typeof msg.id === 'string') {
         let e = acc.ids.get(msg.id);
         if (!e) {
           e = { entries: [], files: new Set(), sessions: new Set(), reqs: new Set(), models: new Set() };
           acc.ids.set(msg.id, e);
         }
-        e.entries.push({ f: fi.idx, u: flat });
+        e.entries.push({ f: fi.idx, u: flat, stop: msg.stop_reason });
         e.files.add(fi.idx);
         if (sid) e.sessions.add(sid);
         if (typeof obj.requestId === 'string') e.reqs.add(obj.requestId);
@@ -282,6 +400,10 @@ function analyzeLine(acc, obj, fi, pf, ctx) {
   }
 
   // Session bookkeeping (values stay in memory; only counts are reported).
+  const cwd = typeof obj.cwd === 'string' ? obj.cwd : null;
+  const branch = typeof obj.gitBranch === 'string' ? obj.gitBranch : null;
+  if (cwd) acc.sensitive.cwds.add(cwd);
+  if (branch) acc.sensitive.branches.add(branch);
   if (sid) {
     let s = acc.sessions.get(sid);
     if (!s) {
@@ -289,38 +411,47 @@ function analyzeLine(acc, obj, fi, pf, ctx) {
       acc.sessions.set(sid, s);
     }
     s.files.add(fi.idx);
-    if (typeof obj.cwd === 'string') s.cwds.add(obj.cwd);
+    if (cwd) s.cwds.add(cwd);
     if (model) s.models.add(model);
-    if (typeof obj.gitBranch === 'string') s.branches.add(obj.gitBranch);
+    if (branch) s.branches.add(branch);
     if (typeof obj.version === 'string') s.versions.add(obj.version);
     if (fi.expectedSid !== null) {
       pf.sidLines++;
       if (sid !== fi.expectedSid) pf.sidMismatch++;
     }
   }
-  if (pf.cwds && typeof obj.cwd === 'string') pf.cwds.add(obj.cwd);
-  inc(acc.sidechain[fi.kind], 'isSidechain' in obj ? enumValue(obj.isSidechain) : '<none>');
+  if (pf.cwds && cwd) pf.cwds.add(cwd);
+  inc(acc.sidechain[fi.kind], 'isSidechain' in obj ? enumValue(obj.isSidechain, BOOL) : '<none>');
 }
+
+function mergeCensus(dst, src) {
+  for (const [p, e] of src) {
+    const d = dst.get(p);
+    if (!d) {
+      dst.set(p, e);
+      continue;
+    }
+    d.count += e.count;
+    for (const t of e.types) d.types.add(t);
+    if (e.min !== undefined) d.min = d.min === undefined ? e.min : Math.min(d.min, e.min);
+    if (e.max !== undefined) d.max = d.max === undefined ? e.max : Math.max(d.max, e.max);
+    if (e.negative) d.negative = (d.negative || 0) + e.negative;
+  }
+}
+
+function addNumbers(dst, src) {
+  for (const k of Object.keys(dst)) {
+    if (typeof dst[k] === 'number') dst[k] = k === 'maxLineBytes' ? Math.max(dst[k], src[k]) : dst[k] + src[k];
+  }
+}
+
+const unionInto = (d, s) => {
+  for (const k of Object.keys(s)) if (s[k] instanceof Set) for (const v of s[k]) d[k].add(v);
+};
 
 // Merge a worker's accumulator into the main one.
 function mergeAcc(a, b) {
-  for (const k of Object.keys(a.lines)) {
-    a.lines[k] = k === 'maxLineBytes' ? Math.max(a.lines[k], b.lines[k]) : a.lines[k] + b.lines[k];
-  }
-  const mergeCensus = (dst, src) => {
-    for (const [p, e] of src) {
-      const d = dst.get(p);
-      if (!d) {
-        dst.set(p, e);
-        continue;
-      }
-      d.count += e.count;
-      for (const t of e.types) d.types.add(t);
-      if (e.min !== undefined) d.min = d.min === undefined ? e.min : Math.min(d.min, e.min);
-      if (e.max !== undefined) d.max = d.max === undefined ? e.max : Math.max(d.max, e.max);
-      if (e.negative) d.negative = (d.negative || 0) + e.negative;
-    }
-  };
+  addNumbers(a.lines, b.lines);
   for (const [t, lt] of b.lineTypes) {
     const d = a.lineTypes.get(t);
     if (!d) a.lineTypes.set(t, lt);
@@ -329,9 +460,7 @@ function mergeAcc(a, b) {
       mergeCensus(d.keys, lt.keys);
     }
   }
-  a.usage.lines += b.usage.lines;
-  a.usage.nonAssistant += b.usage.nonAssistant;
-  a.usage.negativeValues += b.usage.negativeValues;
+  addNumbers(a.usage, b.usage);
   mergeCensus(a.usage.keys, b.usage.keys);
   for (const [p, m] of b.enums) {
     let d = a.enums.get(p);
@@ -341,9 +470,7 @@ function mergeAcc(a, b) {
   for (const [s, c] of b.tsShapes) inc(a.tsShapes, s, c);
   a.assistantUsageLines += b.assistantUsageLines;
   a.missingMessageId += b.missingMessageId;
-  const unionInto = (d, s) => {
-    for (const k of Object.keys(s)) if (s[k] instanceof Set) for (const v of s[k]) d[k].add(v);
-  };
+  addNumbers(a.requestIdMissing, b.requestIdMissing);
   for (const [id, e] of b.ids) {
     const d = a.ids.get(id);
     if (!d) a.ids.set(id, e);
@@ -358,15 +485,29 @@ function mergeAcc(a, b) {
     else unionInto(d, s);
   }
   for (const kind of Object.keys(a.sidechain)) for (const [v, c] of b.sidechain[kind]) inc(a.sidechain[kind], v, c);
+  addNumbers(a.userLines, b.userLines);
+  for (const [v, c] of b.userLines.leadingTag) inc(a.userLines.leadingTag, v, c);
+  unionInto(a.sensitive, b.sensitive);
+  for (const [v, c] of b.unreadable) inc(a.unreadable, v, c);
   a.perFile.push(...b.perFile);
+}
+
+// Scan a list of files, counting read errors (EACCES, too large, vanished...) by code.
+function scanFiles(acc, files, prev) {
+  for (const fi of files) {
+    try {
+      scanFile(acc, fi, prev[fi.key]);
+    } catch (err) {
+      inc(acc.unreadable, (err && (err.code || err.name)) || 'error');
+    }
+  }
 }
 
 // ---------------------------------------------------------------- worker entry
 
 if (!isMainThread && workerData && workerData.probeWorker) {
   const acc = newAcc();
-  for (const fi of workerData.files) scanFile(acc, fi, workerData.prev[fi.key]);
-  // `last` markers are only meaningful inside one accumulator.
+  scanFiles(acc, workerData.files, workerData.prev);
   parentPort.postMessage(acc);
 }
 
@@ -436,12 +577,12 @@ function candidateDirs(opts) {
 
 // Walk <dataDir>/projects and classify every entry.
 function discover(dataDir) {
-  const projectsRoot = path.join(dataDir, 'projects');
   const found = {
     projectDirs: [],
     transcripts: [],
     metaFiles: [],
     toolResultDirs: 0,
+    symlinksSkipped: 0,
     otherByExt: new Map(),
   };
   const walk = (dir, parts) => {
@@ -454,7 +595,9 @@ function discover(dataDir) {
     for (const ent of entries) {
       const abs = path.join(dir, ent.name);
       const rel = [...parts, ent.name];
-      if (ent.isDirectory()) {
+      if (ent.isSymbolicLink()) {
+        if (ent.name.endsWith('.jsonl')) found.symlinksSkipped++;
+      } else if (ent.isDirectory()) {
         if (rel.length === 1) found.projectDirs.push(ent.name);
         if (ent.name === 'tool-results') found.toolResultDirs++;
         walk(abs, rel);
@@ -487,7 +630,7 @@ function discover(dataDir) {
       }
     }
   };
-  walk(projectsRoot, []);
+  walk(path.join(dataDir, 'projects'), []);
   found.transcripts.forEach((fi, idx) => {
     fi.idx = idx;
     fi.size = tryStat(fi.abs)?.size ?? 0;
@@ -497,14 +640,31 @@ function discover(dataDir) {
 
 // ---------------------------------------------------------------- scanning
 
+function runWorker(files, prev) {
+  return new Promise((resolve, reject) => {
+    const subPrev = {};
+    for (const fi of files) if (prev[fi.key]) subPrev[fi.key] = prev[fi.key];
+    const w = new Worker(new URL(import.meta.url), { workerData: { probeWorker: true, files, prev: subPrev } });
+    let result = null;
+    w.once('message', (m) => {
+      result = m;
+    });
+    w.once('error', reject);
+    // A worker that dies without posting a result must not hang the probe.
+    w.once('exit', (code) => (result && code === 0 ? resolve(result) : reject(new Error(`worker exit ${code}`))));
+  });
+}
+
 async function scanAll(transcripts, prev) {
   const total = transcripts.reduce((s, f) => s + f.size, 0);
   const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
-  const n = Math.max(1, Math.min(8, cpus - 1, transcripts.length));
+  const n = Math.max(1, Math.min(8, Math.max(2, cpus - 1), transcripts.length));
   const acc = newAcc();
   if (total < INLINE_BYTES || n === 1) {
-    for (const fi of transcripts) scanFile(acc, fi, prev[fi.key]);
+    acc.scanMode = 'inline';
+    scanFiles(acc, transcripts, prev);
   } else {
+    acc.scanMode = `workers:${n}`;
     // Greedy size-balanced buckets, one worker each.
     const buckets = Array.from({ length: n }, () => ({ bytes: 0, files: [] }));
     for (const fi of [...transcripts].sort((x, y) => y.size - x.size)) {
@@ -512,33 +672,76 @@ async function scanAll(transcripts, prev) {
       b.bytes += fi.size;
       b.files.push(fi);
     }
-    const parts = await Promise.all(
-      buckets.map(
-        (b) =>
-          new Promise((resolve, reject) => {
-            const subPrev = {};
-            for (const fi of b.files) if (prev[fi.key]) subPrev[fi.key] = prev[fi.key];
-            const w = new Worker(new URL(import.meta.url), { workerData: { probeWorker: true, files: b.files, prev: subPrev } });
-            w.once('message', resolve);
-            w.once('error', reject);
-          }),
-      ),
-    );
+    const parts = await Promise.all(buckets.map((b) => runWorker(b.files, prev)));
     for (const p of parts) mergeAcc(acc, p);
   }
   acc.perFile.sort((x, y) => x.idx - y.idx);
   return acc;
 }
 
+// ---------------------------------------------------------------- redaction
+
+// Values that may pass an enum pattern yet identify the user, machine or project.
+function blockedEnumValues(acc) {
+  const blocked = new Set();
+  const add = (s) => s && blocked.add(s.toLowerCase());
+  add(os.userInfo().username);
+  add(os.hostname());
+  add(os.hostname().split('.')[0]);
+  for (const c of acc.sensitive.cwds) add(baseName(c));
+  for (const b of acc.sensitive.branches) add(b);
+  return blocked;
+}
+
+// Fold any blocked enum values / line-type names into '<redacted>'.
+function redactAcc(acc, blocked) {
+  const isBlocked = (v) => blocked.has(v.toLowerCase());
+  for (const [p, m] of acc.enums) {
+    const out = new Map();
+    for (const [v, c] of m) inc(out, isBlocked(v) ? '<redacted>' : v, c);
+    acc.enums.set(p, out);
+  }
+  for (const [t, lt] of [...acc.lineTypes]) {
+    if (!isBlocked(t)) continue;
+    acc.lineTypes.delete(t);
+    const d = acc.lineTypes.get('<redacted>');
+    if (!d) acc.lineTypes.set('<redacted>', lt);
+    else {
+      d.count += lt.count;
+      mergeCensus(d.keys, lt.keys);
+    }
+  }
+  for (const pf of acc.perFile) if (pf.lastType && isBlocked(pf.lastType)) pf.lastType = '<redacted>';
+}
+
+// Strings whose presence in the serialised report means something leaked.
+function forbiddenStrings(opts, acc, projectDirs) {
+  const list = [['@', '@'], ['home directory', os.homedir()]];
+  if (opts.dir) list.push(['--dir path', opts.dir], ['--dir path', path.resolve(opts.dir)]);
+  if (opts.globalConfig) {
+    list.push(['--global-config path', opts.globalConfig], ['--global-config path', path.resolve(opts.globalConfig)]);
+  }
+  const user = os.userInfo().username;
+  if (user.length >= 3) list.push(['username', user]);
+  const host = os.hostname();
+  if (host.length >= 3) list.push(['hostname', host]);
+  const shortHost = host.split('.')[0];
+  if (shortHost.length >= 3) list.push(['hostname', shortHost]);
+  for (const c of acc.sensitive.cwds) if (c.length >= 3) list.push(['cwd', c]);
+  for (const d of projectDirs) if (d.length >= 3) list.push(['project dir name', d]);
+  for (const b of acc.sensitive.branches) if (b.length >= 4 && !COMMON_BRANCHES.has(b)) list.push(['git branch', b]);
+  return list;
+}
+
 // ---------------------------------------------------------------- report building
 
-const sortedCounts = (map) => Object.fromEntries([...map].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)));
+const byCountDesc = (x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1);
+const sortedCounts = (map) => Object.fromEntries([...map].sort(byCountDesc));
 
 function capCounts(map) {
-  const sorted = [...map].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1));
   const out = {};
   let other = 0;
-  sorted.forEach(([v, c], i) => {
+  [...map].sort(byCountDesc).forEach(([v, c], i) => {
     if (i < ENUM_CAP && v !== '<other>') out[v] = c;
     else other += c;
   });
@@ -555,16 +758,26 @@ function censusOut(map, denom) {
   return out;
 }
 
+function idShape(id) {
+  if (id.startsWith('msg_')) return 'msg_';
+  return UUID_RE.test(id) ? 'uuid' : 'other';
+}
+
 function buildDedup(acc) {
   const d = {
     assistantLinesWithUsage: acc.assistantUsageLines,
     distinctMessageIds: acc.ids.size,
+    messageIdShapes: { api: { msg_: 0, uuid: 0, other: 0 }, synthetic: { msg_: 0, uuid: 0, other: 0 } },
+    requestIdMissing: acc.requestIdMissing,
     splitMessageIds: 0,
     maxLinesPerId: 0,
     splitIdenticalUsage: 0,
     differingFields: {},
     nonDecreasingWhenDiffering: 0,
     lastLineMaxWhenDiffering: 0,
+    splitStopReasonOnlyOnLast: 0,
+    splitStopReasonOnlyOnLastAll: 0,
+    zeroTrailingLineIds: 0,
     idsAcrossMultipleFiles: 0,
     idsAcrossMultipleSessions: 0,
     idsWithMultipleRequestIds: 0,
@@ -572,8 +785,9 @@ function buildDedup(acc) {
     linesMissingMessageId: acc.missingMessageId,
   };
   const differing = new Map();
-  for (const e of acc.ids.values()) {
+  for (const [id, e] of acc.ids) {
     const n = e.entries.length;
+    d.messageIdShapes[e.models.has('<synthetic>') ? 'synthetic' : 'api'][idShape(id)]++;
     d.maxLinesPerId = Math.max(d.maxLinesPerId, n);
     if (e.files.size > 1) d.idsAcrossMultipleFiles++;
     if (e.sessions.size > 1) d.idsAcrossMultipleSessions++;
@@ -581,12 +795,28 @@ function buildDedup(acc) {
     if (e.models.size > 1) d.idsWithMultipleModels++;
     if (n < 2) continue;
     d.splitMessageIds++;
-    const rows = e.entries.map((x, i) => [x, i]).sort((x, y) => x[0].f - y[0].f || x[1] - y[1]).map(([x]) => x.u);
-    const fields = new Set(rows.flatMap((u) => Object.keys(u)));
+    // Stable order: by file index, then line order within the file.
+    const rows = e.entries.map((x, i) => [x, i]).sort((x, y) => x[0].f - y[0].f || x[1] - y[1]).map(([x]) => x);
+    const usages = rows.map((r) => r.u);
+    const stops = rows.map((r) => r.stop);
+    const stopOnlyOnLast = stops.slice(0, -1).every((s) => s === null) && stops[n - 1] !== null && stops[n - 1] !== undefined;
+    if (stopOnlyOnLast) d.splitStopReasonOnlyOnLastAll++;
+
+    // A later all-zero line after a line with real tokens.
+    let seenNonZero = false;
+    for (const u of usages) {
+      if (seenNonZero && TOKEN_FIELDS.every((f) => u[f] === 0)) {
+        d.zeroTrailingLineIds++;
+        break;
+      }
+      if (TOKEN_FIELDS.some((f) => typeof u[f] === 'number' && u[f] !== 0)) seenNonZero = true;
+    }
+
+    const fields = new Set(usages.flatMap((u) => Object.keys(u)));
     let anyDiff = false;
     for (const f of fields) {
-      const first = JSON.stringify(rows[0][f]);
-      if (rows.some((u) => JSON.stringify(u[f]) !== first)) {
+      const first = JSON.stringify(usages[0][f]);
+      if (usages.some((u) => JSON.stringify(u[f]) !== first)) {
         anyDiff = true;
         inc(differing, f);
       }
@@ -595,16 +825,17 @@ function buildDedup(acc) {
       d.splitIdenticalUsage++;
       continue;
     }
+    if (stopOnlyOnLast) d.splitStopReasonOnlyOnLast++;
     let nonDecreasing = true;
     let lastIsMax = true;
-    const last = rows[rows.length - 1];
+    const last = usages[n - 1];
     for (const f of fields) {
-      for (let i = 1; i < rows.length; i++) {
-        const a = rows[i - 1][f];
-        const b = rows[i][f];
+      for (let i = 1; i < n; i++) {
+        const a = usages[i - 1][f];
+        const b = usages[i][f];
         if (typeof a === 'number' && typeof b === 'number' && b < a) nonDecreasing = false;
       }
-      for (const u of rows) if (typeof u[f] === 'number' && typeof last[f] === 'number' && u[f] > last[f]) lastIsMax = false;
+      for (const u of usages) if (typeof u[f] === 'number' && typeof last[f] === 'number' && u[f] > last[f]) lastIsMax = false;
     }
     if (nonDecreasing) d.nonDecreasingWhenDiffering++;
     if (lastIsMax) d.lastLineMaxWhenDiffering++;
@@ -613,7 +844,25 @@ function buildDedup(acc) {
   return d;
 }
 
-function buildSessions(acc, transcripts) {
+function buildUserLines(acc) {
+  const u = acc.userLines;
+  const enumOut = (p) => sortedCounts(acc.enums.get(p) || new Map());
+  return {
+    total: u.total,
+    isCompactSummary: u.isCompactSummary,
+    isVisibleInTranscriptOnly: u.isVisibleInTranscriptOnly,
+    isMeta: u.isMeta,
+    isSidechain: u.isSidechain,
+    promptSource: enumOut('user:promptSource'),
+    originKind: enumOut('user:origin.kind'),
+    stringContent: u.stringContent,
+    leadingTag: sortedCounts(u.leadingTag),
+    queueOperationStringContent: u.queueOperationStringContent,
+    systemStringContent: u.systemStringContent,
+  };
+}
+
+function buildSessions(acc) {
   const s = {
     distinctSessionIds: acc.sessions.size,
     withMultipleFiles: 0,
@@ -710,10 +959,22 @@ function buildProjectDirEncoding(acc, projectDirs) {
 function buildGlobalConfig(opts) {
   const list = [];
   if (opts.globalConfig) list.push(['--global-config', path.resolve(opts.globalConfig)]);
-  if (process.env.CLAUDE_CONFIG_DIR) list.push(['$CLAUDE_CONFIG_DIR/.claude.json', path.join(path.resolve(process.env.CLAUDE_CONFIG_DIR), '.claude.json')]);
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    list.push(['$CLAUDE_CONFIG_DIR/.claude.json', path.join(path.resolve(process.env.CLAUDE_CONFIG_DIR), '.claude.json')]);
+  }
   list.push(['$HOME/.claude.json', path.join(os.homedir(), '.claude.json')]);
   const candidates = list.map(([label, abs]) => ({ label, exists: !!tryStat(abs)?.isFile() }));
-  const r = { selectedLabel: null, candidates, parseError: false, topLevelKeys: [], oauthAccountPresent: false, oauthAccountKeys: [], oauthAccountValueTypes: {} };
+  const r = {
+    selectedLabel: null,
+    candidates,
+    parseError: false,
+    topLevelKeys: [],
+    unlistedKeys: 0,
+    oauthAccountPresent: false,
+    oauthAccountKeys: [],
+    oauthAccountUnlistedKeys: 0,
+    oauthAccountValueTypes: {},
+  };
   const idx = candidates.findIndex((c) => c.exists);
   if (idx === -1) return r;
   r.selectedLabel = candidates[idx].label;
@@ -725,13 +986,19 @@ function buildGlobalConfig(opts) {
     return r;
   }
   if (!isObj(cfg)) return r;
-  r.topLevelKeys = Object.keys(cfg).map(safeKey);
+  for (const k of Object.keys(cfg)) {
+    if (CONFIG_KEY_RE.test(k)) r.topLevelKeys.push(k);
+    else r.unlistedKeys++;
+  }
   if (isObj(cfg.oauthAccount)) {
     r.oauthAccountPresent = true;
     for (const k of Object.keys(cfg.oauthAccount)) {
-      const sk = safeKey(k);
-      r.oauthAccountKeys.push(sk);
-      r.oauthAccountValueTypes[sk] = jsonType(cfg.oauthAccount[k]);
+      if (!CONFIG_KEY_RE.test(k)) {
+        r.oauthAccountUnlistedKeys++;
+        continue;
+      }
+      r.oauthAccountKeys.push(k);
+      r.oauthAccountValueTypes[k] = jsonType(cfg.oauthAccount[k]);
     }
   }
   return r;
@@ -767,7 +1034,10 @@ function buildAuxiliary(dataDir, metaFiles) {
   const sessDir = path.join(dataDir, 'sessions');
   let sessFiles = [];
   try {
-    sessFiles = fs.readdirSync(sessDir).filter((n) => n.endsWith('.json')).map((n) => path.join(sessDir, n));
+    sessFiles = fs
+      .readdirSync(sessDir)
+      .filter((n) => n.endsWith('.json'))
+      .map((n) => path.join(sessDir, n));
   } catch {
     sessFiles = [];
   }
@@ -803,15 +1073,27 @@ function buildAuxiliary(dataDir, metaFiles) {
 }
 
 function buildAppendCheck(prevSnap, perFile) {
-  const r = { grewAppendOnly: 0, unchanged: 0, rewritten: 0, identityChanged: 0, newFiles: 0, deletedFiles: 0 };
+  const r = {
+    grewAppendOnly: 0,
+    unchanged: 0,
+    mtimeChangedSameContent: 0,
+    shrank: 0,
+    rewritten: 0,
+    identityChanged: 0,
+    newFiles: 0,
+    deletedFiles: 0,
+  };
   const seen = new Set();
   for (const pf of perFile) {
     seen.add(pf.key);
     const p = prevSnap[pf.key];
     if (!p) r.newFiles++;
     else if (p.ino !== pf.ino) r.identityChanged++;
-    else if (pf.size === p.size && pf.tail === p.tail && pf.head === p.head) r.unchanged++;
-    else if (pf.size > p.size && pf.prevHeadCheck === p.head && pf.prevTailCheck === p.tail) r.grewAppendOnly++;
+    else if (pf.size === p.size && pf.full === p.full) {
+      r.unchanged++;
+      if (pf.mtimeMs !== p.mtimeMs) r.mtimeChangedSameContent++;
+    } else if (pf.size > p.size && pf.prevPrefix === p.full) r.grewAppendOnly++;
+    else if (pf.size < p.size) r.shrank++;
     else r.rewritten++;
   }
   for (const k of Object.keys(prevSnap)) if (!seen.has(k)) r.deletedFiles++;
@@ -856,12 +1138,20 @@ async function main() {
   } catch {
     entries = [];
   }
-  report.dataDirEntries = entries
-    .map((e) => ({ name: safeName(e.name), kind: e.isDirectory() ? 'dir' : e.isFile() ? 'file' : e.isSymbolicLink() ? 'symlink' : 'other' }))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const kindOf = (e) => (e.isDirectory() ? 'dir' : e.isFile() ? 'file' : e.isSymbolicLink() ? 'symlink' : 'other');
+  report.dataDirEntries = {
+    listed: entries
+      .filter((e) => KNOWN_DATA_ENTRIES.has(e.name))
+      .map((e) => ({ name: e.name, kind: kindOf(e) }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+    unlistedEntries: entries.filter((e) => !KNOWN_DATA_ENTRIES.has(e.name)).length,
+  };
 
-  const found = dataDir ? discover(dataDir) : { projectDirs: [], transcripts: [], metaFiles: [], toolResultDirs: 0, otherByExt: new Map() };
+  const found = dataDir
+    ? discover(dataDir)
+    : { projectDirs: [], transcripts: [], metaFiles: [], toolResultDirs: 0, symlinksSkipped: 0, otherByExt: new Map() };
   const acc = await scanAll(found.transcripts, prevSnap || {});
+  redactAcc(acc, blockedEnumValues(acc));
   const perFile = acc.perFile;
 
   report.files = {
@@ -873,6 +1163,8 @@ async function main() {
     subagentMetaFiles: found.metaFiles.length,
     toolResultDirs: found.toolResultDirs,
     otherFilesByExtension: sortedCounts(found.otherByExt),
+    symlinksSkipped: found.symlinksSkipped,
+    unreadable: sortedCounts(acc.unreadable),
     totalBytes: perFile.reduce((s, f) => s + f.size, 0),
     maxFileBytes: perFile.reduce((m, f) => Math.max(m, f.size), 0),
     emptyFiles: perFile.filter((f) => f.size === 0).length,
@@ -907,27 +1199,26 @@ async function main() {
   for (const p of [...acc.enums.keys()].sort()) report.enums[p] = capCounts(acc.enums.get(p));
   report.timestampShapes = sortedCounts(acc.tsShapes);
   report.dedup = buildDedup(acc);
-  report.sessions = buildSessions(acc, found.transcripts);
+  report.userLines = buildUserLines(acc);
+  report.sessions = buildSessions(acc);
   report.projectDirEncoding = buildProjectDirEncoding(acc, found.projectDirs);
   report.globalConfig = buildGlobalConfig(opts);
   report.auxiliary = dataDir ? buildAuxiliary(dataDir, found.metaFiles) : null;
 
   report.fileSnapshot = {};
   for (const pf of perFile) {
-    report.fileSnapshot[pf.key] = { size: pf.size, ino: pf.ino, mtimeMs: pf.mtimeMs, head: pf.head, tail: pf.tail };
+    report.fileSnapshot[pf.key] = { size: pf.size, ino: pf.ino, mtimeMs: pf.mtimeMs, full: pf.full };
   }
   if (prevSnap) report.appendCheck = buildAppendCheck(prevSnap, perFile);
+  report.meta.scanMode = acc.scanMode;
   report.meta.durationMs = Date.now() - started;
 
-  // Final safety guard: refuse to emit anything containing an '@', the home dir or given paths.
+  // Backstop guard: refuse to emit a report containing any identifying string.
   const text = JSON.stringify(report, null, 2) + '\n';
-  const forbidden = [['@', '@'], ['home directory', os.homedir()]];
-  if (opts.dir) forbidden.push(['--dir path', opts.dir], ['--dir path', path.resolve(opts.dir)]);
-  if (opts.globalConfig) forbidden.push(['--global-config path', opts.globalConfig], ['--global-config path', path.resolve(opts.globalConfig)]);
-  for (const [what, s] of forbidden) {
-    if (!s || (s.length < 2 && s !== '@')) continue;
+  for (const [category, s] of forbiddenStrings(opts, acc, found.projectDirs)) {
+    if (!s) continue;
     if (text.includes(s) || text.includes(JSON.stringify(s).slice(1, -1))) {
-      process.stderr.write(`probe: refusing to write report: it contains a forbidden string (${what})\n`);
+      process.stderr.write(`probe: refusing to write report: it contains a forbidden string (category: ${category})\n`);
       process.exit(2);
     }
   }
@@ -939,7 +1230,7 @@ async function main() {
 if (isMainThread) {
   main().catch((err) => {
     // Only the error class/code is printed; messages can contain paths.
-    process.stderr.write(`probe: failed (${err && (err.code || err.name) ? err.code || err.name : 'error'})\n`);
+    process.stderr.write(`probe: failed (${(err && (err.code || err.name)) || 'error'})\n`);
     process.exit(1);
   });
 }

@@ -4,6 +4,13 @@
   "linesSkipped": 2,
   "partialTrailingBytes": 200,
   "consumedBytes": 1896,
+  "projects": [
+    {
+      "path": "/home/dev/projects/demo-app",
+      "first_seen_at": "2026-09-21T12:00:00.000Z",
+      "last_seen_at": "2026-09-21T12:01:00.000Z"
+    }
+  ],
   "sessions": [
     {
       "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000004",
@@ -14,7 +21,7 @@
       "entrypoint": "cli",
       "git_branch": "main",
       "model": "claude-sonnet-5",
-      "cwd": "/home/dev/projects/demo-app"
+      "project_path": "/home/dev/projects/demo-app"
     }
   ],
   "usage": [
