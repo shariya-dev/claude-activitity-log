@@ -1,5 +1,5 @@
 # H02 — Claude Data Contract (PRD Phase 0, §13–14)
-Status: todo · Wave 2 · parallel with H03, H04 · Branch `handover/H02-claude-data-contract`
+Status: done (8bbf072) · Wave 2 · parallel with H03, H04 · Branch `handover/H02-claude-data-contract`
 
 ## Objective
 Produce a **verified** description of Claude Code's local data on macOS, Windows, and Linux, plus sanitized fixtures, so the reader (H09) and adapters (H19–H21) rely on evidence, not assumptions.
