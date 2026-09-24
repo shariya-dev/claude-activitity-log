@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('monitor:mark-offline')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('monitor:prune')->daily()->withoutOverlapping();

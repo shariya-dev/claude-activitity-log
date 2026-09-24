@@ -1,9 +1,10 @@
 <?php
 
-use App\Http\Controllers\Dashboard\PlaceholderController;
+use App\Http\Controllers\Dashboard\UserController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('admin/users', PlaceholderController::class)
-    ->middleware('can:manageUsers')
-    ->defaults('title', 'Users')
-    ->name('users.index');
+Route::middleware('can:manageUsers')->group(function (): void {
+    Route::get('admin/users', [UserController::class, 'index'])->name('users.index');
+    Route::post('admin/users', [UserController::class, 'store'])->name('users.store');
+    Route::patch('admin/users/{user}', [UserController::class, 'update'])->name('users.update');
+});

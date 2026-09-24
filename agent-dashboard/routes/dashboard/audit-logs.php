@@ -1,9 +1,8 @@
 <?php
 
-use App\Http\Controllers\Dashboard\PlaceholderController;
+use App\Http\Controllers\Dashboard\AuditLogController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('admin/audit-logs', PlaceholderController::class)
+Route::get('admin/audit-logs', [AuditLogController::class, 'index'])
     ->middleware('can:viewAuditLogs')
-    ->defaults('title', 'Audit Log')
     ->name('audit-logs.index');
