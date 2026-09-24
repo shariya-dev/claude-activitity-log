@@ -153,6 +153,9 @@ export async function runAgent(
   const { signal } = o;
   let started = false;
   c.logger.info('agent_started', { channel: c.buildConfig.channel });
+  // Left behind if a previous run was killed during pairing; the lock is ours now.
+  rmSync(c.paths.pairingUrlFile, { force: true });
+  rmSync(c.paths.syncRequestFile, { force: true });
 
   try {
     while (!signal.aborted) {

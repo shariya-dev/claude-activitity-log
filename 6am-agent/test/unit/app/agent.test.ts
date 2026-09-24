@@ -88,6 +88,14 @@ describe('runAgent', () => {
     expect(c.runtime.status().running).toBe(false);
   });
 
+  it('removes a pairing-url left behind by a killed process', async () => {
+    await registerDevice(c, VALID_CODE);
+    writeFileSync(c.paths.pairingUrlFile, 'http://127.0.0.1:1/pair/dead\n');
+    void start();
+    await waitFor(() => c.runtime.status().running);
+    expect(existsSync(c.paths.pairingUrlFile)).toBe(false);
+  });
+
   it('the sync-request file triggers runtime.requestSync and is consumed', async () => {
     await registerDevice(c, VALID_CODE);
     const requestSync = vi.spyOn(c.runtime, 'requestSync');

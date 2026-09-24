@@ -77,6 +77,16 @@ describe('pairing flow', () => {
       expect(req.device.agent_version).toMatch(/^\d+\.\d+\.\d+/);
     });
 
+    it('resumes sync_sequence from GET /sync/status when none is stored', async () => {
+      env.backend.serverSequence = 41;
+      await registerDevice(c, VALID_CODE);
+      expect(c.state.get('sync_sequence')).toBe(41);
+
+      env.backend.serverSequence = 99;
+      await registerDevice(c, VALID_CODE);
+      expect(c.state.get('sync_sequence')).toBe(41);
+    });
+
     it('a rejected code stores nothing and gives the generic message', async () => {
       const err = await registerDevice(c, 'WRONG').catch((e: unknown) => e);
       expect(err).toBeInstanceOf(PairingError);

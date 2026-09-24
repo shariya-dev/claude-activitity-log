@@ -69,6 +69,14 @@ describe('buildConfig', () => {
       });
     });
 
+    it('the fake adapter implies the file credential store (it has no OS store)', () => {
+      const r = applyDevOverrides(
+        { apiBaseUrl: 'http://127.0.0.1:8000', channel: 'dev' },
+        { AGENT_ADAPTER: 'fake' },
+      );
+      expect(r.fileCredentials).toBe(true);
+    });
+
     it('ignores every override on the stable channel', () => {
       const r = applyDevOverrides({ apiBaseUrl: 'https://m.test', channel: 'stable' }, env);
       expect(r).toEqual({

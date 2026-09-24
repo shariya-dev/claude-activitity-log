@@ -7,7 +7,7 @@ let signalled = false;
 // finish within 10 s) and closes SQLite; a second one exits immediately.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    if (signalled) process.exit(130);
+    if (signalled) process.exit(signal === 'SIGINT' ? 130 : 143);
     signalled = true;
     controller.abort();
   });

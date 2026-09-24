@@ -29,6 +29,8 @@ export class FakeBackend {
   settings: TrackingSettings = makeSettings({ initial_sync: { range: 'all', since: null } });
   /** When set, every authenticated call answers 401. */
   revoked = false;
+  /** `sequence` reported by GET /sync/status. */
+  serverSequence = 0;
 
   readonly fetch: typeof fetch = (input, init = {}) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -106,6 +108,15 @@ export class FakeBackend {
     }
     if (method === 'POST' && route === '/sync') {
       return this.json(200, okSyncResponse(body as SyncRequest));
+    }
+    if (method === 'GET' && route === '/sync/status') {
+      return this.json(200, {
+        last_batch_id: null,
+        cursor: null,
+        sequence: this.serverSequence,
+        last_success_at: null,
+        sessions_known: 0,
+      });
     }
     if (method === 'POST' && route === '/deregister') return new Response(null, { status: 204 });
     return this.json(404, { success: false, error: { code: 'not_found', message: 'x' } });

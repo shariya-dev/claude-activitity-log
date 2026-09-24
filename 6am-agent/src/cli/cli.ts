@@ -123,7 +123,7 @@ async function cmdSyncNow(c: AgentContainer, d: CliDeps): Promise<number> {
   const holder = readLockHolder(c.paths.lockFile);
   if (holder !== null) {
     writeFileSync(c.paths.syncRequestFile, '');
-    d.stdout(`Sync requested from the running agent (pid ${holder}).\n`);
+    d.stdout(`Sync requested; the agent process (pid ${holder}) picks it up within seconds.\n`);
     return 0;
   }
   return withLock(c, d, async () => {

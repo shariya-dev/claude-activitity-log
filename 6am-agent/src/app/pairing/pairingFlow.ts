@@ -78,7 +78,24 @@ export async function registerDevice(
     agent_state: 'ok',
   });
   c.logger.info('device_paired', { device_id: resp.device_id });
+  await resumeSequence(c);
   return { developer: resp.developer.name };
+}
+
+/**
+ * Without a local sync sequence (first install, reinstall, other device), continue from the
+ * server's last acknowledged one (contract §3.5). Informational only, so failures are ignored.
+ */
+async function resumeSequence(c: AgentContainer): Promise<void> {
+  if (c.state.get('sync_sequence') !== null) return;
+  try {
+    const status = await c.api.syncStatus();
+    if (status.sequence > 0) c.state.set('sync_sequence', status.sequence);
+  } catch (err) {
+    c.logger.warn('sync_status_failed', {
+      code: err instanceof ApiError ? err.code : 'internal_error',
+    });
+  }
 }
 
 const PROGRESS_MS = 500;

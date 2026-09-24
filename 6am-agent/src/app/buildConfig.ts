@@ -47,7 +47,7 @@ export interface EffectiveConfig {
   apiBaseUrl: string;
   /** `AGENT_DATA_DIR`: app data and logs. Null = the adapter's directories. */
   dataDir: string | null;
-  /** `AGENT_CREDENTIAL_BACKEND=file`: a 0600 file store in the data dir. */
+  /** `AGENT_CREDENTIAL_BACKEND=file` (implied by the fake adapter): a 0600 file store in the data dir. */
   fileCredentials: boolean;
   /** `AGENT_ADAPTER=fake`: the fake adapter (bundled only in dev builds). */
   fakeAdapter: boolean;
@@ -69,7 +69,8 @@ export function applyDevOverrides(
   return {
     apiBaseUrl: set(env.AGENT_API_BASE_URL) ?? base.apiBaseUrl,
     dataDir: set(env.AGENT_DATA_DIR),
-    fileCredentials: env.AGENT_CREDENTIAL_BACKEND === 'file',
+    // The fake adapter has no OS store; its in-memory one would lose the pairing between runs.
+    fileCredentials: env.AGENT_CREDENTIAL_BACKEND === 'file' || env.AGENT_ADAPTER === 'fake',
     fakeAdapter: env.AGENT_ADAPTER === 'fake',
   };
 }
