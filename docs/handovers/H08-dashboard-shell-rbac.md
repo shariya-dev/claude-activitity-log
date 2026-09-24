@@ -1,5 +1,5 @@
 # H08 — Dashboard Shell, RBAC, Shared Components
-Status: todo · Wave 3 · parallel with H05–H07, H09, H10 · Branch `handover/H08-dashboard-shell-rbac`
+Status: done (f57c15a) · Wave 3 · parallel with H05–H07, H09, H10 · Branch `handover/H08-dashboard-shell-rbac`
 
 ## Objective
 Everything the Wave 4 page handovers share, so they can run in parallel without touching common files: gates, Inertia shared props, the sidebar with every nav entry, placeholder routes/pages for each feature, shared Vue monitor components, shared TS types, and the `monitor:create-admin` command.
