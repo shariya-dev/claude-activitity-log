@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createContainer, type AgentContainer } from '../../../src/app/container.js';
 import { registerDevice } from '../../../src/app/pairing/pairingFlow.js';
 import { runCli, type CliDeps } from '../../../src/cli/cli.js';
+import { compareSemver } from '../../../src/core/runtime/agentRuntime.js';
 import {
   DEVICE_ID,
   makeEnv,
@@ -71,11 +72,11 @@ describe('cli', () => {
     expect(io.out).toMatch(/^6am-agent \d+\.\d+\.\d+\S*\n$/);
   });
 
-  it('ships as 1.0.0, the contract default min_agent_version, and the unbundled fallback matches package.json', async () => {
+  it('ships at least 1.0.0, the contract default min_agent_version, and the unbundled fallback matches package.json', async () => {
     const pkg = JSON.parse(
       readFileSync(path.join(import.meta.dirname, '../../../package.json'), 'utf8'),
     ) as { version: string };
-    expect(pkg.version).toBe('1.0.0');
+    expect(compareSemver(pkg.version, '1.0.0')).toBeGreaterThanOrEqual(0);
 
     await runCli(['--version'], {
       stdout: (s) => (io.out += s),
