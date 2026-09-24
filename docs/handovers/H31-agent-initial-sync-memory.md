@@ -1,5 +1,5 @@
 # H31 — Initial Sync Memory Under 120 MB RSS
-Status: todo · Follow-up (Wave 6 finding FU-5) · parallel with H26–H30 · Branch `handover/H31-agent-memory`
+Status: done (d77cf77) · Follow-up (Wave 6 finding FU-5) · parallel with H26–H30 · Branch `handover/H31-agent-memory`
 
 ## Objective
 Peak RSS during a ~27k-record initial sync stays under 120 MB (PRD target; H24 measured 190.5 MB). Idle stays ~20–25 MB.
