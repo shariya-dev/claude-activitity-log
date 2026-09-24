@@ -221,6 +221,8 @@ describe('agentRuntime', () => {
 
       await advance(SEC);
       expect(api.count('heartbeat')).toBe(2);
+      // device_disabled is local-only (contract §3.3): the probe reports ok.
+      expect(api.heartbeatRequests[1]?.agent_state).toBe('ok');
       expect(state.get('agent_state')).toBe('ok');
       expect(runOnce).toHaveBeenCalledTimes(1);
 

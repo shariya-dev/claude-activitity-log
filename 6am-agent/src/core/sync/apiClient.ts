@@ -253,9 +253,12 @@ export function createApiClient(o: {
   };
 
   const json =
-    <T>(schema: ZodType<T>) =>
+    <T>(schema: ZodType<T>, requiredStatus?: number) =>
     (raw: RawResponse): T => {
       if (!isOk(raw.status)) throw errorFrom(raw);
+      if (requiredStatus !== undefined && raw.status !== requiredStatus) {
+        throw invalidResponse(raw.status);
+      }
       const parsed = schema.safeParse(parseJson(raw.text));
       if (!parsed.success) throw invalidResponse(raw.status);
       return parsed.data;
@@ -267,7 +270,9 @@ export function createApiClient(o: {
     settings: () => perform('GET', '/settings', { auth: true }, json(TrackingSettingsSchema)),
     heartbeat: (req) =>
       perform('POST', '/heartbeat', { auth: true, body: req }, json(HeartbeatResponseSchema)),
-    sync: (req) => perform('POST', '/sync', { auth: true, body: req }, json(SyncResponseSchema)),
+    // Contract §7.2: only `200` + `success: true` acknowledges a batch.
+    sync: (req) =>
+      perform('POST', '/sync', { auth: true, body: req }, json(SyncResponseSchema, 200)),
     syncStatus: () =>
       perform('GET', '/sync/status', { auth: true }, json(SyncStatusResponseSchema)),
     deregister: () =>

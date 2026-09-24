@@ -103,6 +103,12 @@ export function createAgentRuntime(d: {
     return d.state.get('agent_state') ?? 'ok';
   };
 
+  /** needs_repair and device_disabled are local-only (contract §3.3); a probe reports ok. */
+  const heartbeatState = (): AgentState => {
+    const reported = reportedState();
+    return reported === 'needs_repair' || reported === 'device_disabled' ? 'ok' : reported;
+  };
+
   const heartbeatIntervalMs = (): number => {
     if (d.state.get('agent_state') === 'device_disabled') return DISABLED_HEARTBEAT_SECONDS * 1_000;
     return (loadedSettings()?.heartbeat_interval_seconds ?? DEFAULT_HEARTBEAT_SECONDS) * 1_000;
@@ -197,7 +203,7 @@ export function createAgentRuntime(d: {
       claude_code_version: claudeCodeVersion,
       platform_version: info.platform_version,
       hostname: settings?.categories.device === true ? info.hostname : null,
-      agent_state: reportedState(),
+      agent_state: heartbeatState(),
       last_local_activity_at: lastActivity === null ? null : lastActivity.toISOString(),
       last_successful_sync_at: d.state.get('last_success_sync_at'),
       last_error: lastError(),

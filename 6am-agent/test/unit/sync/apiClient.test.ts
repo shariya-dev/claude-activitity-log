@@ -187,6 +187,23 @@ describe('createApiClient: invalid responses are retryable invalid_response', ()
     expect(err).toMatchObject({ code: 'invalid_response', status: 500, retryable: true });
   });
 
+  it('/sync 200 with success:false or without success', async () => {
+    const ok = example('sync.response.minimal.json') as Record<string, unknown>;
+    for (const body of [
+      { ...ok, success: false },
+      { ...ok, success: undefined },
+    ]) {
+      const err = await caught(client(createFakeFetch({ body })).sync(syncReq));
+      expect(err).toMatchObject({ code: 'invalid_response', status: 200, retryable: true });
+    }
+  });
+
+  it('/sync acknowledged with a non-200 2xx status (contract §7.2 requires 200)', async () => {
+    const f = createFakeFetch({ status: 202, body: example('sync.response.minimal.json') });
+    const err = await caught(client(f).sync(syncReq));
+    expect(err).toMatchObject({ code: 'invalid_response', status: 202, retryable: true });
+  });
+
   it('unknown error code in an otherwise valid envelope', async () => {
     const body = { success: false, error: { code: 'brand_new', message: 'x', retryable: false } };
     const f = createFakeFetch({ status: 400, body });

@@ -107,12 +107,12 @@ describe('syncManager.runOnce', () => {
       expect(req.accounts).toEqual([]);
     });
 
-    it('success stores the cursor, sequence, success time and agent_state ok; next batch echoes them', async () => {
+    it('success stores the cursor, sequence and success time without touching agent_state; next batch echoes them', async () => {
       await manager.runOnce();
       expect(state.get('server_cursor')).toBe('cursor-1');
       expect(state.get('sync_sequence')).toBe(1);
       expect(state.get('last_success_sync_at')).toBe(NOW.toISOString());
-      expect(state.get('agent_state')).toBe('ok');
+      expect(state.get('agent_state')).toBeNull();
 
       scan.append('/p/a.jsonl', usageRecord('msg_a-3'));
       await manager.runOnce();
@@ -175,7 +175,6 @@ describe('syncManager.runOnce', () => {
         server_cursor: 'cursor-1',
         last_success_sync_at: NOW.toISOString(),
         sync_sequence: 1,
-        agent_state: 'ok',
       });
       expect(acks[1]?.[0]).toEqual([
         {
@@ -396,6 +395,16 @@ describe('syncManager.runOnce', () => {
       expect(state.get('server_cursor')).toBe('cursor-1');
     });
 
+    it.each(['device_disabled', 'update_required'] as const)(
+      '%s stored ⇒ stopped immediately without any network call',
+      async (agentState) => {
+        state.set('agent_state', agentState);
+        const outcome = await manager.runOnce();
+        expect(outcome.status).toBe('stopped');
+        expect(api.calls).toHaveLength(0);
+      },
+    );
+
     it('needs_repair ⇒ stopped immediately without any network call', async () => {
       state.set('agent_state', 'needs_repair');
       const outcome = await manager.runOnce();
@@ -507,6 +516,57 @@ describe('syncManager.runOnce', () => {
       expect(outcome).toMatchObject({ status: 'ok', batches: 1 });
       expect(api.count('sync')).toBe(1);
       expect(state.get('initial_sync_done')).toBeNull();
+    });
+
+    it('a concurrent settings refresh (heartbeat) turning session OFF mid-run stops before the next chunk', async () => {
+      scan.append('/p/b.jsonl', ...records('msg_b', 1));
+      scan.append('/p/c.jsonl', ...records('msg_c', 1));
+      api.queue('sync', async (req: SyncRequest) => {
+        serverSettings(makeSettings({ version: 2, categories: { session: false } }));
+        await settings.refreshIfNeeded(2);
+        return okSyncResponse(req, { settings_version: 2 });
+      });
+
+      const outcome = await manager.runOnce();
+
+      expect(outcome).toMatchObject({ status: 'ok', batches: 1 });
+      expect(api.count('sync')).toBe(1);
+    });
+
+    it('a concurrent settings refresh mid-run applies the new settings to the next chunk', async () => {
+      scan.append('/p/b.jsonl', ...records('msg_b', 1));
+      api.queue('sync', async (req: SyncRequest) => {
+        serverSettings(makeSettings({ version: 2, categories: { prompt: true } }));
+        await settings.refreshIfNeeded(2);
+        return okSyncResponse(req, { settings_version: 1 });
+      });
+
+      await manager.runOnce();
+
+      expect(api.syncRequests.map((r) => r.sync.settings_version)).toEqual([1, 2]);
+      expect(scan.scanCalls[1]?.opts.settings.categories.prompt).toBe(true);
+    });
+
+    it('a chunk scanned with settings that changed before it was sent is discarded unsent', async () => {
+      scan.append('/p/b.jsonl', ...records('msg_b', 1));
+      const original = scan.scan.bind(scan);
+      let yielded = 0;
+      scan.scan = async function* (checkpoints, opts) {
+        for await (const chunk of original(checkpoints, opts)) {
+          yielded += 1;
+          if (yielded === 1) {
+            serverSettings(makeSettings({ version: 2, categories: { session: false } }));
+            await settings.refreshIfNeeded(2);
+          }
+          yield chunk;
+        }
+      };
+
+      const outcome = await manager.runOnce();
+
+      expect(outcome.status).toBe('nothing');
+      expect(api.count('sync')).toBe(0);
+      expect(state.checkpoints().size).toBe(0);
     });
 
     it('a version bump that yields the same settings version does not restart the scan', async () => {

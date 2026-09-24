@@ -80,7 +80,8 @@ function transaction(db: DatabaseSync, fn: () => void): void {
     fn();
     db.exec('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
+    // SQLite may already have rolled back (SQLITE_FULL, IOERR); keep the original error.
+    if (db.isTransaction) db.exec('ROLLBACK');
     throw err;
   }
 }

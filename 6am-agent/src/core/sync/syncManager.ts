@@ -10,7 +10,7 @@ import type { Logger } from '../runtime/logger.js';
 import type { SettingsManager } from '../settings/settingsManager.js';
 import type { StateStore } from '../state/stateStore.js';
 import { ApiError, type ApiClient } from './apiClient.js';
-import { applyApiErrorState } from './errorPolicy.js';
+import { applyApiErrorState, blocksSync } from './errorPolicy.js';
 import { DEFAULT_CHUNK_LIMITS, type AgentInfo, type ChunkLimits } from './types.js';
 
 export interface SyncOutcome {
@@ -141,6 +141,9 @@ export function createSyncManager(d: {
         settings: TrackingSettings,
         agent: SyncAgent,
       ): Promise<PassResult | null> => {
+        // Settings changed since this pass was scanned (e.g. by a heartbeat): discard the chunk
+        // unsent and re-scan with the new settings (contract §5: settings apply at scan time).
+        if (d.settings.current().version !== settings.version) return { kind: 'restart' };
         const req: SyncRequest = {
           agent,
           sync: {
@@ -182,7 +185,6 @@ export function createSyncManager(d: {
           server_cursor: resp.cursor,
           last_success_sync_at: clock().toISOString(),
           sync_sequence: sequence,
-          agent_state: 'ok',
         });
         pending = null;
         totals.batches += 1;
@@ -196,7 +198,8 @@ export function createSyncManager(d: {
         }
 
         const version = Math.max(resp.settings_version, d.api.lastSettingsVersion() ?? 0);
-        return (await refreshIfNewer(version)) ? { kind: 'restart' } : null;
+        await refreshIfNewer(version);
+        return d.settings.current().version === settings.version ? null : { kind: 'restart' };
       };
 
       const pass = async (settings: TrackingSettings, agent: SyncAgent): Promise<PassResult> => {
@@ -224,7 +227,7 @@ export function createSyncManager(d: {
       };
 
       try {
-        if (d.state.get('agent_state') === 'needs_repair') return result('stopped');
+        if (blocksSync(d.state.get('agent_state'))) return result('stopped');
         await d.settings.refreshIfNeeded();
         const agent = toSyncAgent(await d.agentInfo());
         let retriedTooLarge = false;
