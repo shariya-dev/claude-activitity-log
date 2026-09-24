@@ -1,5 +1,5 @@
 # H09 — Agent: Claude Data Reader & Normalizer (`ScanSource`)
-Status: todo · Wave 3 · parallel with H05–H08, H10 · Branch `handover/H09-agent-claude-reader`
+Status: done (27855c7) · Wave 3 · parallel with H05–H08, H10 · Branch `handover/H09-agent-claude-reader`
 
 ## Objective
 Implement the OS-agnostic reader that turns Claude Code's local files into contract-shaped, deduplicated, settings-filtered records, incrementally from file checkpoints. Implements `ScanSource` from `src/core/contract/scan.ts`.
