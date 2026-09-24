@@ -1,5 +1,5 @@
 # H07 — Analytics Query Layer
-Status: todo · Wave 3 · parallel with H05, H06, H08–H10 · Branch `handover/H07-analytics-queries`
+Status: done (39c67c7) · Wave 3 · parallel with H05, H06, H08–H10 · Branch `handover/H07-analytics-queries`
 
 ## Objective
 The read side every dashboard page uses: date-range parsing, filters, token totals/trends/breakdowns from rollups, activity stats, agent health, and session search. Pure PHP query objects returning plain arrays; no controllers or pages.
