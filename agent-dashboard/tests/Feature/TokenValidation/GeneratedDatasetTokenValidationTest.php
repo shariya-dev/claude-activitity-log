@@ -224,7 +224,7 @@ test('TokenValidation dataset: a split message delivered in three batches counts
 
     $sessionId = $this->ids['session']['tv-carol-borealis-split'];
     $expected = tvGroup(array_values(array_filter($this->rows, fn (array $r): bool => $r['session'] === 'tv-carol-borealis-split')), fn (): string => 'x')['x'];
-    expect($expected['message_count'])->toBe(2)
+    expect($expected['message_count'])->toBe(3)
         ->and(tvSqlTotal('claude_session_id = ?', [$sessionId]))->toBe($expected);
 
     $snapshot = fn (): array => [
@@ -249,4 +249,78 @@ test('TokenValidation dataset: a split message delivered in three batches counts
     expect($snapshot())->toBe($before)
         ->and(tvPage('sessions.show', ['session' => $sessionId])['totals'])->toBe($expected)
         ->and($this->analytics->totals(tvFilters(TV_ALL_FROM, TV_ALL_TO)))->toBe(tvTotal($this->rows));
+});
+
+test('TokenValidation dataset: a split line whose later batch carries an earlier timestamp across org midnight moves to the earlier org day, whole', function () {
+    $d = '2026-09-01';
+    $next = '2026-09-02';
+    $carol = $this->ingested['devices']['carol'];
+    $sessionId = $this->ids['session']['tv-carol-borealis-split'];
+    $sessionRows = array_values(array_filter($this->rows, fn (array $r): bool => $r['session'] === 'tv-carol-borealis-split'));
+    $byDay = fn (array $rows): array => tvGroup(array_values(array_filter($rows, fn (array $r): bool => $r['day'] >= $d && $r['day'] <= $next)), fn (array $r): string => $r['day']);
+
+    // 1) The dataset message: delivered first at 18:00:00.010Z (org day D+1), then at 17:59:59.990Z (org day D).
+    expect(tvOrgDay('2026-09-01T18:00:00.010Z'))->toBe($next)
+        ->and(tvOrgDay('2026-09-01T17:59:59.990Z'))->toBe($d);
+
+    $usage = SessionUsage::where('source_message_id', 'msg_midnight_split')->sole();
+    expect($usage->recorded_on->format('Y-m-d'))->toBe($d)
+        ->and($usage->recorded_at->utc()->format('Y-m-d\TH:i:s.v\Z'))->toBe('2026-09-01T17:59:59.990Z')
+        ->and($usage->only(tvRawColumns()))->toBe(['input_tokens' => 11, 'output_tokens' => 950, 'cache_creation_tokens' => 300, 'cache_read_tokens' => 4000])
+        ->and($usage->actual_consumed_tokens)->toBe(11 + 950 + 300)
+        ->and($usage->total_token_activity)->toBe(11 + 950 + 300 + 4000);
+
+    $expectedDays = $byDay($this->rows);
+    $filters = tvFilters($d, $next);
+    expect(tvKeyed($this->analytics->trend($filters, Granularity::Day), 'period'))->toBe($expectedDays)
+        ->and(tvKeyed(tvPage('analytics.tokens', ['range' => 'custom', 'from' => $d, 'to' => $next, 'granularity' => 'day'])['trend'], 'period'))->toBe($expectedDays)
+        ->and(tvSql("DATE_FORMAT(recorded_on, '%Y-%m-%d')", 'recorded_on BETWEEN ? AND ?', [$d, $next]))->toBe($expectedDays)
+        ->and(tvRollups('date BETWEEN ? AND ?', [$d, $next]))->toBe($expectedDays);
+
+    // Carol's D+1 rollup holds only the msg_split + msg_s7_2 lines; D holds the moved message.
+    $carolRows = array_values(array_filter($this->rows, fn (array $r): bool => $r['device'] === $carol->device_uid));
+    expect(tvRollups('device_id = ? AND date BETWEEN ? AND ?', [$carol->id, $d, $next]))->toBe($byDay($carolRows))
+        ->and(tvRollups('device_id = ? AND date = ?', [$carol->id, $next])[$next]['message_count'])->toBe(2)
+        ->and(tvRollups('device_id = ? AND date = ?', [$carol->id, $d])[$d])->toBe(tvMetrics(11, 950, 300, 4000, 1));
+
+    $sessionTotal = tvTotal($sessionRows);
+    expect(tvSqlTotal('claude_session_id = ?', [$sessionId]))->toBe($sessionTotal)
+        ->and(tvPage('sessions.show', ['session' => $sessionId])['totals'])->toBe($sessionTotal)
+        ->and(tvSumMetrics($byDay($sessionRows)))->toBe($sessionTotal);
+
+    // 2) Live before/after: a fresh line with identical tokens, sent at D+1 then re-sent at D in a new batch.
+    $session = syncSession('tv-carol-borealis-split', [
+        'project_key' => projectKey('borealis'),
+        'account_key' => accountKey('carol-personal'),
+        'first_seen_at' => '2026-09-01T17:59:59.990Z',
+        'last_seen_at' => '2026-09-02T08:05:00.000Z',
+    ]);
+    $line = fn (string $at): array => syncUsage('msg_midnight_live', 'tv-carol-borealis-split', [
+        'model' => 'claude-sonnet-5', 'recorded_at' => $at,
+        'input_tokens' => 5, 'output_tokens' => 40, 'cache_creation_tokens' => 60, 'cache_read_tokens' => 700,
+    ]);
+    $agent = ['device_id' => $carol->device_uid, 'platform' => 'linux'];
+    $live = tvMetrics(5, 40, 60, 700, 1);
+    $carolBefore = tvRollups('device_id = ?', [$carol->id]);
+    $plus = fn (array $a, array $b): array => tvSumMetrics([$a, $b]);
+
+    tvPostAs($carol, syncBody(['sessions' => [$session], 'usage' => [$line('2026-09-01T18:00:00.010Z')]], ['sequence' => 10], $agent));
+    $afterFirst = tvRollups('device_id = ?', [$carol->id]);
+    $sessionAfterFirst = tvSqlTotal('claude_session_id = ?', [$sessionId]);
+    expect(SessionUsage::where('source_message_id', 'msg_midnight_live')->sole()->recorded_on->format('Y-m-d'))->toBe($next)
+        ->and($afterFirst[$next])->toBe($plus($carolBefore[$next], $live))
+        ->and($afterFirst[$d])->toBe($carolBefore[$d])
+        ->and($sessionAfterFirst)->toBe($plus($sessionTotal, $live));
+
+    tvPostAs($carol, syncBody(['sessions' => [$session], 'usage' => [$line('2026-09-01T17:59:59.990Z')]], ['sequence' => 11], $agent));
+    $afterSecond = tvRollups('device_id = ?', [$carol->id]);
+    expect(SessionUsage::where('source_message_id', 'msg_midnight_live')->sole()->recorded_on->format('Y-m-d'))->toBe($d)
+        ->and($afterSecond[$next])->toBe($carolBefore[$next], 'D+1 rollup no longer holds the moved line')
+        ->and($afterSecond[$d])->toBe($plus($carolBefore[$d], $live))
+        ->and(tvSqlTotal('claude_session_id = ?', [$sessionId]))->toBe($sessionAfterFirst, 'session total unchanged by the day move')
+        ->and(ClaudeSession::find($sessionId)->only(tvMetricColumns(false)))->toBe(tvOnly($sessionAfterFirst, false))
+        ->and(tvKeyed($this->analytics->trend($filters, Granularity::Day), 'period'))->toBe([
+            $d => $plus($expectedDays[$d], $live),
+            $next => $expectedDays[$next],
+        ]);
 });

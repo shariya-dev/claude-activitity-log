@@ -3,12 +3,15 @@
  * token-audit — the H23 token oracle.
  *
  * An INDEPENDENT reference implementation of Claude Code token usage
- * extraction. It deliberately does not import or mirror any code from the
+ * extraction. It does not import any code from the
  * agent (`6am-agent/src/`) or the backend (`agent-dashboard/app/`); its rules
  * come only from `docs/contracts/claude-data-contract.md` §3–6, §11 and §15,
  * the fixture README (`6am-agent/test/fixtures/claude/README.md`) and PRD
  * §19–22. It is used to check that the agent, the database and the dashboard
  * all report the same numbers for the same raw data.
+ * Rules it shares with the agent (the known line types, the dedup key order,
+ * non-numeric or negative token values becoming 0) are copied from contract
+ * §4–6, not from the agent code.
  *
  * Rules (contract §5–6):
  *   - Files: exactly `projects/*\/*.jsonl` and `projects/*\/*\/subagents/*.jsonl`
@@ -32,15 +35,15 @@
  * Privacy: only these fields are ever accessed on a line: type, sessionId,
  * timestamp, isSidechain, requestId, uuid, message.id, message.model,
  * message.usage.{input_tokens,output_tokens,cache_creation_input_tokens,
- * cache_read_input_tokens}. Prompt text, content, cwd and any file path
- * inside --dir are never printed.
+ * cache_read_input_tokens}. Prompt text, content, cwd and file paths are
+ * never printed; the report shows only the basename of --dir.
  *
  * Zero dependencies. Node >= 24.
  */
 
 import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -277,6 +280,7 @@ export async function audit({ dir, sessions = null, since = null, tz = DEFAULT_T
         files: 0,
         linesTotal: 0,
         linesSkipped: 0,
+        usageNoKey: 0,
         partialTrailingBytes: 0,
         usageLines: 0,
         syntheticSkipped: 0,
@@ -339,7 +343,7 @@ export async function audit({ dir, sessions = null, since = null, tz = DEFAULT_T
         const key = nonEmptyString(message.id) ?? nonEmptyString(line.requestId) ?? nonEmptyString(line.uuid);
         if (key === null) {
             // No identity at all: cannot be deduplicated, so it cannot be counted safely.
-            diagnostics.linesSkipped++;
+            diagnostics.usageNoKey++;
             return;
         }
         diagnostics.usageLines++;
@@ -422,7 +426,7 @@ export async function audit({ dir, sessions = null, since = null, tz = DEFAULT_T
     return {
         tool: 'token-audit',
         version: 1,
-        dir,
+        dir: basename(dir),
         tz,
         since: sinceIso,
         sessionsFilter: sessionFilter ? [...sessionFilter] : null,

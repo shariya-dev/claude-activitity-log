@@ -101,13 +101,28 @@ describe('H23 agent validation — generated multi-session dataset', () => {
       const files = await generate(dir, seed);
       const report = runOracle(dir.root);
       const oracle = oracleBreakdown(report);
-      const usage = usageOf(await scanAll(agentScanner(dir.root)));
+      const chunks = await scanAll(agentScanner(dir.root));
+      const usage = usageOf(chunks);
       const agent = agentBreakdown(usage);
 
       expect(report.diagnostics.files).toBe(files.length);
       expect(report.diagnostics.splitMessages).toBeGreaterThan(0);
       expect(report.diagnostics.syntheticSkipped).toBe(1);
       expect(report.diagnostics.partialTrailingBytes).toBeGreaterThan(0);
+      expect(report.diagnostics.linesSkipped).toBe(1);
+      expect(report.diagnostics.usageNoKey).toBe(0);
+      expect(report.diagnostics.distinctMessages).toBe(usage.length);
+      const sumStat = (k: 'filesRead' | 'linesRead' | 'linesSkipped') =>
+        chunks.reduce((a, c) => a + c.stats[k], 0);
+      expect({
+        files: sumStat('filesRead'),
+        linesTotal: sumStat('linesRead'),
+        linesSkipped: sumStat('linesSkipped'),
+      }).toEqual({
+        files: report.diagnostics.files,
+        linesTotal: report.diagnostics.linesTotal,
+        linesSkipped: report.diagnostics.linesSkipped,
+      });
       expect(Object.keys(oracle.sessions)).toHaveLength(12);
       expect(Object.keys(oracle.models)).toHaveLength(3);
       expect(Object.keys(oracle.days).length).toBeGreaterThanOrEqual(3);

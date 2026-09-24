@@ -2,7 +2,16 @@
 
 Date: 2026-09-24 · Branch `handover/H23-token-validation` · Machine: macOS 26 (Darwin 25.3.0, arm64), Claude Code 2.1.274, Node 24/25.
 
-**Result: every metric is equal at every layer.** Raw Claude data (oracle) = agent reader/payload = database = H07 queries = dashboard pages, for fixtures, generated datasets and a controlled real session. No mismatch was found, so no follow-up handover is needed for token correctness. PRD §61 AC23–AC26 are proven below.
+**Result: every metric is equal at every layer.** Raw Claude data (oracle) = agent reader/payload = database = H07 queries = dashboard pages, for fixtures, generated datasets and a controlled real session. No mismatch was found, so no follow-up handover is needed for token correctness. PRD §61 AC23–AC26 are proven below (mapping in §0).
+
+## 0. Acceptance criteria (PRD §61)
+
+| AC | Statement | Evidence |
+|---|---|---|
+| AC23 | Token usage is available in V1 | §4: a real session flows from Claude data to the dashboard; §3: every PRD §22 axis (developer, device, account, project, session, model, day/week/month/year, custom range) is asserted |
+| AC24 | Input, output, cache creation and cache read are stored separately | Separate columns in `session_usage`, `claude_sessions` and `usage_daily_rollups`, asserted per field in every table below (§2–§4) |
+| AC25 | Actual Consumed Tokens follow the V1 calculation | PRD §20 example = 150,000 / 650,000 (§3.1); `actual = in + out + cc` and `total = actual + cr` asserted for every returned row, and the stored columns recomputed in SQL (§3.3); real session 13,061 / 98,187 (§4) |
+| AC26 | Cache Read Tokens are displayed separately | Session and Token Analytics pages expose `cache_read_tokens` as its own prop (§3.1, §4) and render it as a separate "Cache Read Tokens" card outside Actual Consumed Tokens (checked on screenshots of the real session, §4) |
 
 ## 1. Method
 
@@ -23,7 +32,7 @@ The backend tests compute the expected values a third way: PHP arithmetic over t
 node tools/token-audit/token-audit.mjs --dir <claude data dir> [--session <id>]... [--since <ISO-8601>] [--tz <IANA>] [--json]
 ```
 
-The oracle is read-only. It prints only ids, dates, models and numbers, never prompt text, cwd or cost data. On this Mac's full `~/.claude` (1.3 GB, 986 files, 281,358 lines, 50,215 distinct messages from 104,480 usage lines) it runs in about 3 s.
+The oracle is read-only. It prints only ids, dates, models and numbers, never prompt text, cwd or cost data. On this Mac's full `~/.claude` (about 1.3 GB and 990 files, about 50,000 distinct messages from about 104,000 usage lines) it runs in about 2.5–3 s. Exact counts differ slightly between runs because live sessions keep writing.
 
 ## 2. Controlled fixtures (H02) — oracle vs agent reader vs contract
 
@@ -63,7 +72,7 @@ The same folder also tests these cases:
   {"files":993,"chunks":102,"emittedUsage":50754,"sessions":615,"days":24,"models":6,"oracleMessages":50425,"agentMessages":50425,"oracleMs":2487,"agentMs":2604,"liveSessionsExcluded":1,"mismatches":0}
   ✓ … agent == oracle on totals, every session, day, model and session-day
   ```
-  - 329 messages straddled one of the 102 chunk boundaries. They were emitted twice and come out right only after the server merge.
+  - 329 messages straddled one of the 102 chunk boundaries. They were emitted twice and come out right only after the test-side model of the H06 merge (`support.ts` `serverMerge`: per-field max, earliest `recorded_at`). The real backend applies the same rule, proven in §3.3 (split + cross-midnight delivery).
   - One session was still being written during the run (the live Claude Code session running this validation). It is excluded and counted, because the oracle and the agent read it at different moments.
   - `H23_REAL_SESSION=806aade6…` passes for the controlled session in §4.
 - **Mutation checks** (each change was applied, the suite run, then the change reverted):
@@ -73,9 +82,11 @@ The same folder also tests these cases:
 
 Scope note: the oracle treats a `message.id` as one message across all sessions, while the agent and backend key usage by (session, message). An id in two sessions would therefore count once in the oracle and twice in the product. The contract measured 0 ids across sessions [V], and the real-data run above confirms it for current data.
 
+The oracle dates a message by its first line in file order, while the backend keeps the earliest `recorded_at` it receives. The two differ only if a message's split lines are written out of timestamp order and straddle a scan boundary across org midnight. That never occurred in the real-data run, whose day buckets all match.
+
 ## 3. Backend validation (generated datasets through the real `/api/agent/v1/sync`)
 
-`agent-dashboard/tests/Feature/TokenValidation/`: 19 tests, 1,152 assertions. All data enters through `POST /api/agent/v1/sync` as paired devices. In every row, dataset arithmetic = SQL over `session_usage` = H07 = dashboard props.
+`agent-dashboard/tests/Feature/TokenValidation/`: 20 tests, 1,267 assertions. All data enters through `POST /api/agent/v1/sync` as paired devices. In every row, dataset arithmetic = SQL over `session_usage` = H07 = dashboard props.
 
 ### 3.1 PRD §20 example
 
@@ -104,7 +115,7 @@ All of it falls on org day 2026-09-23. Model totals (haiku, opus, sonnet) each e
 Deterministic (`mt_srand(20260923)`):
 - 3 developers, each with their own device (macOS, Windows, Linux).
 - Projects `atlas` and `borealis`, plus one session with no project and no account.
-- 2 models, 8 sessions, 20 unique messages, org tz `Asia/Dhaka`.
+- 2 models, 8 sessions, 21 unique messages, org tz `Asia/Dhaka`.
 
 Every value below agrees across dataset arithmetic, SQL over `session_usage`, H07 and the dashboard props. For sessions, the `claude_sessions` row, `SessionSearch`, `recentSessions`, and the sessions index and show pages also agree.
 
@@ -117,15 +128,15 @@ Every value below agrees across dataset arithmetic, SQL over `session_usage`, H0
 | bob-borealis-prev-week | 7,220 / 5,733 / 30,272 / 153,616 | 43,225 | 196,841 | 2 |
 | carol-atlas-new-year | 6,790 / 2,793 / 18,236 / 382,335 | 27,819 | 410,154 | 2 |
 | carol-unassigned | 2,498 / 5,410 / 21,564 / 286,852 | 29,472 | 316,324 | 2 |
-| carol-borealis-split | 3,952 / 4,397 / 15,099 / 175,265 | 23,448 | 198,713 | 2 |
-| **Grand total** | 52,154 / 39,522 / 205,903 / 1,977,584 | **297,579** | **2,275,163** | 20 |
+| carol-borealis-split | 3,963 / 5,347 / 15,399 / 179,265 | 24,709 | 203,974 | 3 |
+| **Grand total** | 52,165 / 40,472 / 206,203 / 1,981,584 | **298,840** | **2,280,424** | 21 |
 
 | Axis | Values (Actual / Total / Msgs) |
 |---|---|
-| Developer (= device) | alice 108,985 / 758,927 / 9 · bob 107,855 / 591,045 / 5 · carol 80,739 / 925,191 / 6 |
-| Project | atlas 166,178 / 1,424,617 / 11 · borealis 101,929 / 534,222 / 7 · Unknown 29,472 / 316,324 / 2 |
-| Model | opus 140,507 / 1,352,426 / 10 · sonnet 157,072 / 922,737 / 10 |
-| Claude account | alice-work 108,985 / 758,927 · bob-work 107,855 / 591,045 · carol-personal 51,267 / 608,867 · Unknown 29,472 / 316,324 |
+| Developer (= device) | alice 108,985 / 758,927 / 9 · bob 107,855 / 591,045 / 5 · carol 82,000 / 930,452 / 7 |
+| Project | atlas 166,178 / 1,424,617 / 11 · borealis 103,190 / 539,483 / 8 · Unknown 29,472 / 316,324 / 2 |
+| Model | opus 140,507 / 1,352,426 / 10 · sonnet 158,333 / 927,998 / 11 |
+| Claude account | alice-work 108,985 / 758,927 · bob-work 107,855 / 591,045 · carol-personal 52,528 / 614,128 · Unknown 29,472 / 316,324 |
 
 Per org day (Asia/Dhaka), Actual / Total / Msgs:
 
@@ -137,7 +148,7 @@ Per org day (Asia/Dhaka), Actual / Total / Msgs:
 | 2026-08-29 | 29,472 | 316,324 | 2 |
 | 2026-08-30 | 42,412 | 285,151 | 2 |
 | 2026-08-31 | 26,848 | 64,163 | 3 |
-| 2026-09-01 | 23,529 | 100,499 | 2 |
+| 2026-09-01 | 24,790 | 105,760 | 3 |
 | 2026-09-02 | 88,078 | 592,917 | 5 |
 | 2026-09-03 | 16,196 | 309,114 | 2 |
 
@@ -147,6 +158,12 @@ What the dataset covers:
   - `bob-atlas-utc-midnight` runs from 23:30Z to 00:00Z. UTC midnight is not an org-day boundary, so all of it lands on 09-02.
   - `carol-atlas-new-year` crosses the org year boundary.
 - **Split-line / repeated delivery.** `msg_split` is delivered in three batches (output 100, then 866, then an all-zero line). It is stored once as 7 / 866 / 1,200 / 5,000 (Actual 2,073, Total 7,073). Replaying an identical batch changes nothing.
+- **Split line across org midnight, through the backend.** `msg_midnight_split` is delivered in two batches.
+  - The first batch is stamped 2026-09-01T18:00:00.010Z (org day 09-02) with output 200.
+  - The second batch is stamped 17:59:59.990Z (org day 09-01) with output 950.
+  - The backend keeps the earliest `recorded_at` and the per-field max. The message is stored once on 09-01 as 11 / 950 / 300 / 4,000 (Actual 1,261, Total 5,261).
+  - The 09-02 rollup no longer holds it. The H07 trend, the page trend, SQL and the rollups agree for both days, and the session total is unchanged.
+  - A before/after check with a second line shows the row and its rollup actually moving from D+1 to D.
 - **Periods.**
   - Day, week (Monday start), month and year trend buckets.
   - Custom ranges: 08-30..09-01 (crosses a week and a month boundary), 08-31 alone, 2025-12-31..2026-01-01, and the full range.
@@ -165,6 +182,7 @@ Mutation check: each deliberate break was applied, the suite was run, and the ch
 | Duplicates summed instead of max | 11 fail |
 | Org day taken in UTC | 12 fail |
 | Week starts on Sunday | week test fails |
+| Backend keeps the latest `recorded_at` instead of the earliest | 6 fail |
 | PRD literal changed by 1 | 1 fails |
 
 ## 4. Controlled real session (this Mac)

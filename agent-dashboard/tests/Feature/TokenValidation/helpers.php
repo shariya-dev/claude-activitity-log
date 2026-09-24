@@ -254,6 +254,39 @@ if (! function_exists('tvSqlTotal')) {
     }
 }
 
+if (! function_exists('tvRollups')) {
+    /**
+     * usage_daily_rollups summed per date (Y-m-d), read straight from the table.
+     *
+     * @param  list<mixed>  $bindings
+     * @return array<string, array<string, int>>
+     */
+    function tvRollups(string $where = '1 = 1', array $bindings = []): array
+    {
+        $rows = DB::select(
+            "SELECT DATE_FORMAT(date, '%Y-%m-%d') AS k,
+                SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+                SUM(cache_creation_tokens) AS cache_creation_tokens, SUM(cache_read_tokens) AS cache_read_tokens,
+                SUM(actual_consumed_tokens) AS actual_consumed_tokens, SUM(total_token_activity) AS total_token_activity,
+                SUM(message_count) AS message_count
+            FROM usage_daily_rollups
+            WHERE {$where}
+            GROUP BY k",
+            $bindings,
+        );
+
+        $out = [];
+
+        foreach ($rows as $row) {
+            $out[(string) $row->k] = tvOnly($row);
+        }
+
+        ksort($out, SORT_STRING);
+
+        return $out;
+    }
+}
+
 if (! function_exists('tvKeyed')) {
     /**
      * Key H07/dashboard rows by a field (null => ''), keeping only metric columns.

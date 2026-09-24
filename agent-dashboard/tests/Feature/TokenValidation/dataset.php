@@ -79,6 +79,13 @@ if (! function_exists('tvDataset')) {
                     ['input_tokens' => 0, 'output_tokens' => 0, 'cache_creation_tokens' => 0, 'cache_read_tokens' => 0],
                 ]],
                 ['id' => 'msg_s7_2', 'at' => '2026-09-02T08:05:00.000Z', 'model' => $sonnet],
+                // Split line across org midnight, delivered in two batches: the FIRST delivery is stamped
+                // 18:00:00.010Z (Sep 2 in Dhaka), the LATER one 17:59:59.990Z (Sep 1) with the full output.
+                // Earliest timestamp wins, so the merged message belongs to Sep 1 and must leave Sep 2.
+                ['id' => 'msg_midnight_split', 'at' => '2026-09-01T18:00:00.010Z', 'model' => $sonnet, 'deliveries' => [
+                    ['at' => '2026-09-01T18:00:00.010Z', 'input_tokens' => 11, 'output_tokens' => 200, 'cache_creation_tokens' => 300, 'cache_read_tokens' => 4000],
+                    ['at' => '2026-09-01T17:59:59.990Z', 'input_tokens' => 11, 'output_tokens' => 950, 'cache_creation_tokens' => 300, 'cache_read_tokens' => 4000],
+                ]],
             ]],
             ['id' => 'tv-alice-atlas-late', 'device' => 'alice', 'project' => 'atlas', 'account' => true, 'messages' => [
                 ['id' => 'msg_s8_1', 'at' => '2026-09-03T09:00:00.000Z', 'model' => $opus],
@@ -113,6 +120,27 @@ if (! function_exists('tvDataset')) {
     }
 }
 
+if (! function_exists('tvDeliveryTimes')) {
+    /**
+     * Every timestamp a session's messages are delivered with (a delivery may carry its own `at`).
+     *
+     * @param  array<string, mixed>  $session
+     * @return list<string>
+     */
+    function tvDeliveryTimes(array $session): array
+    {
+        $times = [];
+
+        foreach ($session['messages'] as $message) {
+            foreach ($message['deliveries'] as $delivery) {
+                $times[] = $delivery['at'] ?? $message['at'];
+            }
+        }
+
+        return $times;
+    }
+}
+
 if (! function_exists('tvExpectedRows')) {
     /**
      * One deduplicated row per message, with every dimension name and its org day — pure PHP, no DB.
@@ -126,11 +154,12 @@ if (! function_exists('tvExpectedRows')) {
 
         foreach ($dataset['sessions'] as $session) {
             foreach ($session['messages'] as $message) {
-                foreach ($message['deliveries'] as $tokens) {
+                foreach ($message['deliveries'] as $delivery) {
+                    $tokens = array_intersect_key($delivery, array_flip(tvRawColumns()));
                     $deliveries[] = [
                         'session' => $session['id'],
                         'message' => $message['id'],
-                        'recorded_at' => $message['at'],
+                        'recorded_at' => $delivery['at'] ?? $message['at'],
                         'model' => $message['model'],
                         'developer' => $session['device'].'@6am.test',
                         'device' => 'dev_tv_'.$session['device'],
@@ -165,7 +194,7 @@ if (! function_exists('tvIngestDataset')) {
             $mine = array_values(array_filter($dataset['sessions'], fn (array $s): bool => $s['device'] === $name));
 
             $sessionRecord = function (array $s) use ($spec): array {
-                $times = array_column($s['messages'], 'at');
+                $times = tvDeliveryTimes($s);
 
                 return syncSession($s['id'], [
                     'project_key' => $s['project'] === null ? null : projectKey($s['project']),
@@ -175,11 +204,11 @@ if (! function_exists('tvIngestDataset')) {
                     'model' => end($s['messages'])['model'],
                 ]);
             };
-            $usageRecord = fn (array $s, array $m, array $tokens): array => syncUsage($m['id'], $s['id'], [
+            $usageRecord = fn (array $s, array $m, array $delivery): array => syncUsage($m['id'], $s['id'], [
                 'request_id' => 'req_'.Str::after($m['id'], 'msg_'),
                 'model' => $m['model'],
-                'recorded_at' => $m['at'],
-                ...$tokens,
+                'recorded_at' => $delivery['at'] ?? $m['at'],
+                ...array_intersect_key($delivery, array_flip(tvRawColumns())),
             ]);
 
             $projects = array_values(array_unique(array_filter(array_column($mine, 'project'))));
@@ -195,9 +224,9 @@ if (! function_exists('tvIngestDataset')) {
 
             foreach ($mine as $s) {
                 foreach ($s['messages'] as $m) {
-                    foreach ($m['deliveries'] as $i => $tokens) {
+                    foreach ($m['deliveries'] as $i => $delivery) {
                         $batches[$i] ??= ['sessions' => [$sessionRecord($s)], 'usage' => []];
-                        $batches[$i]['usage'][] = $usageRecord($s, $m, $tokens);
+                        $batches[$i]['usage'][] = $usageRecord($s, $m, $delivery);
                     }
                 }
             }
