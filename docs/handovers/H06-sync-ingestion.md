@@ -1,5 +1,5 @@
 # H06 — Sync Ingestion, Token Calculation, Rollups
-Status: todo · Wave 3 · parallel with H05, H07–H10 · Branch `handover/H06-sync-ingestion`
+Status: done (3534c6c) · Wave 3 · parallel with H05, H07–H10 · Branch `handover/H06-sync-ingestion`
 
 ## Objective
 Implement `POST /api/agent/v1/sync`: validate → persist idempotently in one transaction → calculate tokens (TokenMath) → recompute session/project totals → refresh daily rollups → acknowledge. Also provide a demo-data seeder that exercises the real ingestion path (used by all dashboard handovers).
