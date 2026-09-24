@@ -39,6 +39,10 @@ remove_for_user() {
   for ((i = 0; i < MAX_KEYCHAIN_ITEMS; i++)); do
     as_user /usr/bin/security delete-generic-password -s "$LABEL" >/dev/null 2>&1 || break
   done
+  if as_user /usr/bin/security find-generic-password -s "$LABEL" >/dev/null 2>&1; then
+    log "could not delete the $LABEL Keychain items of $user (login keychain locked?);" \
+      "remove them in Keychain Access"
+  fi
   /bin/rm -rf "$data"
 }
 

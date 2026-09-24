@@ -118,12 +118,7 @@ export function createLaunchAgentService(deps: LaunchAgentDeps): ServiceManager 
     },
 
     async uninstall() {
-      if (await isLoaded()) {
-        const res = await launchctl('bootout', target);
-        if (res.code !== 0 && res.code !== SERVICE_NOT_FOUND) {
-          throw commandFailed('launchctl bootout', res.code);
-        }
-      }
+      if (await isLoaded()) await bootout();
       await rm(plistPath, { force: true });
     },
 

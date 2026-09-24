@@ -103,16 +103,30 @@ describe('LaunchAgent service', () => {
     );
   });
 
-  it('uninstall boots out the service and removes the plist', async () => {
+  it('uninstall boots out the service, waits until launchd dropped it and removes the plist', async () => {
     await mkdir(path.dirname(plistPath), { recursive: true });
     await writeFile(plistPath, 'x');
-    const exec = fakeExec((c) => (c.args[0] === 'print' ? { stdout: PRINT_RUNNING } : undefined));
-    await service(exec).uninstall();
+    let prints = 0;
+    const exec = fakeExec((c) => {
+      if (c.args[0] !== 'print') return undefined;
+      prints += 1;
+      return prints <= 2 ? { stdout: PRINT_RUNNING } : NOT_FOUND;
+    });
+    const svc = service(exec);
+    await svc.uninstall();
     expect(launchctl(exec.calls)).toEqual([
       'print gui/501/com.6amtech.agent',
       'bootout gui/501/com.6amtech.agent',
+      'print gui/501/com.6amtech.agent',
+      'print gui/501/com.6amtech.agent',
     ]);
     await expect(stat(plistPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await svc.status()).toBe('not-installed');
+  });
+
+  it('uninstall fails when launchd never drops the service', async () => {
+    const exec = fakeExec((c) => (c.args[0] === 'print' ? { stdout: PRINT_RUNNING } : undefined));
+    await expect(service(exec).uninstall()).rejects.toThrow(/did not unload/);
   });
 
   it('uninstall is a no-op when nothing is installed', async () => {

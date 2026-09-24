@@ -1,7 +1,8 @@
 #!/bin/bash
 # Runs as root after the payload is in place. Registers the per-user LaunchAgent for the user at
-# the console (never a system LaunchDaemon) and, on a first install, opens pairing in that
-# user's browser. Output goes to /var/log/install.log.
+# the console (never a system LaunchDaemon). The service starts at once (RunAtLoad), and its
+# `run` opens pairing in that user's browser while the device is unpaired, so pairing needs no
+# separate step here. Output goes to /var/log/install.log.
 set -u
 
 APP_ROOT="/Library/Application Support/6amAgent"
@@ -21,7 +22,6 @@ case "$user" in
     ;;
 esac
 uid=$(/usr/bin/id -u "$user")
-home=$(/usr/bin/dscl . -read "/Users/$user" NFSHomeDirectory | /usr/bin/awk '{print $2}')
 
 as_user() {
   /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" -H "$@"
@@ -46,12 +46,4 @@ for dir in "$APP_ROOT"/*/; do
   fi
 done
 
-# Pair only a device that has no credentials yet (first install, or after an uninstall).
-if as_user /usr/bin/security find-generic-password -s "$LABEL" -a device_token >/dev/null 2>&1 ||
-  [ -f "$home/Library/Application Support/6amAgent/credentials.json" ]; then
-  log "device already paired; pairing skipped"
-else
-  as_user /usr/bin/nohup "$NODE" "$ENTRY" pair </dev/null >/dev/null 2>&1 &
-  log "pairing opened for $user"
-fi
 exit 0

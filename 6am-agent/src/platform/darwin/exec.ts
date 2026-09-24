@@ -36,12 +36,16 @@ export const execFileRun: ExecFn = (file, args, opts) =>
       { encoding: 'utf8', timeout: TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err !== null && typeof err.code !== 'number') {
-          reject(new Error(`${file} could not run: ${err.code ?? err.message}`));
+          // Never err.message: Node appends the child's stderr to it.
+          const why = err.killed ? 'timed out' : (err.signal ?? err.code ?? 'failed');
+          reject(new Error(`${file} could not run: ${why}`));
           return;
         }
         resolve({ code: err === null ? 0 : (err.code as number), stdout, stderr });
       },
     );
+    // A child that exits before reading stdin raises EPIPE here; the exit code reports the failure.
+    child.stdin?.on('error', () => undefined);
     child.stdin?.end(opts?.input ?? '');
   });
 

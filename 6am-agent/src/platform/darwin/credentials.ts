@@ -3,7 +3,7 @@
  * account = key), managed through /usr/bin/security so the item's ACL trusts that tool rather
  * than the (versioned) node binary. The secret is written through `security -i` on stdin and
  * never appears in argv, logs or error messages. Without a usable Keychain (headless/SSH) the
- * store falls back to a 0600 file in the app data dir.
+ * store uses a 0600 file in the app data dir instead.
  */
 import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -15,16 +15,10 @@ export const KEYCHAIN_SERVICE = 'com.6amtech.agent';
 
 /** `security` exits with the low byte of the OSStatus. */
 const ITEM_NOT_FOUND = 44; // errSecItemNotFound -25300
-const KEYCHAIN_UNAVAILABLE = new Set([
-  36, // errSecInteractionNotAllowed -25308
-  37, // errSecNoDefaultKeychain -25307
-  53, // errSecNotAvailable -25291
-]);
 
 const SAFE_KEY = /^[A-Za-z0-9._-]{1,128}$/;
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
-
-class KeychainUnavailableError extends Error {}
+/** `find-generic-password -w` prints anything else as hex, so only printable ASCII round-trips. */
+const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
 
 function assertKey(key: string): void {
   if (!SAFE_KEY.test(key)) throw new Error('invalid credential key');
@@ -33,12 +27,6 @@ function assertKey(key: string): void {
 /** Quotes a word for the `security -i` command-line parser. */
 function quote(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function keychainFailure(what: string, code: number): Error {
-  return KEYCHAIN_UNAVAILABLE.has(code)
-    ? new KeychainUnavailableError(`keychain unavailable (exit ${code})`)
-    : commandFailed(`keychain ${what}`, code);
 }
 
 export function createKeychainStore(exec: ExecFn): CredentialStore {
@@ -56,17 +44,18 @@ export function createKeychainStore(exec: ExecFn): CredentialStore {
         '-w',
       ]);
       if (res.code === ITEM_NOT_FOUND) return null;
-      if (res.code !== 0) throw keychainFailure('read', res.code);
+      if (res.code !== 0) throw commandFailed('keychain read', res.code);
       return res.stdout.replace(/\n$/, '');
     },
 
     async set(key, value) {
       assertKey(key);
-      if (CONTROL_CHARS.test(value))
-        throw new Error('credential value contains control characters');
+      if (!PRINTABLE_ASCII.test(value)) {
+        throw new Error('credential value must be printable ASCII');
+      }
       const command = `add-generic-password -U -s ${quote(KEYCHAIN_SERVICE)} -a ${quote(key)} -w ${quote(value)}\n`;
       const res = await exec(BIN.security, ['-i'], { input: command });
-      if (res.code !== 0) throw keychainFailure('write', res.code);
+      if (res.code !== 0) throw commandFailed('keychain write', res.code);
     },
 
     async delete(key) {
@@ -78,7 +67,8 @@ export function createKeychainStore(exec: ExecFn): CredentialStore {
         '-a',
         key,
       ]);
-      if (res.code !== 0 && res.code !== ITEM_NOT_FOUND) throw keychainFailure('delete', res.code);
+      if (res.code !== 0 && res.code !== ITEM_NOT_FOUND)
+        throw commandFailed('keychain delete', res.code);
     },
   };
 }
@@ -104,9 +94,11 @@ export function createFileStore(dir: string): CredentialStore {
     }
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await chmod(dir, 0o700);
+    // A fresh, exclusively created temp file: the secret is never written into an existing file
+    // whose mode could be wider than 0600.
     const tmp = `${file}.${process.pid}.tmp`;
-    await writeFile(tmp, JSON.stringify(values), { mode: 0o600 });
-    await chmod(tmp, 0o600);
+    await rm(tmp, { force: true });
+    await writeFile(tmp, JSON.stringify(values), { mode: 0o600, flag: 'wx' });
     await rename(tmp, file);
   }
 
@@ -144,34 +136,38 @@ export interface DarwinCredentialDeps {
   keychainAvailable: () => boolean;
 }
 
-/** Keychain first; the 0600 file only when the Keychain is unusable in this session. */
+/**
+ * The probe picks the backend once per process and it never changes: a Keychain that fails
+ * (e.g. locked) is an error for the caller to retry, never an empty result that would read as
+ * "not paired". In Keychain mode a value a headless session left in the file is still found,
+ * moves into the Keychain on the next set, and delete clears both.
+ */
 export function createDarwinCredentialStore(deps: DarwinCredentialDeps): CredentialStore {
   const keychain = createKeychainStore(deps.exec);
   const file = createFileStore(deps.fileDir);
-  let active: CredentialStore | null = null;
+  let useKeychain: boolean | null = null;
 
-  const current = (): CredentialStore => {
-    active ??= deps.keychainAvailable() ? keychain : file;
-    return active;
+  const keychainMode = (): boolean => {
+    useKeychain ??= deps.keychainAvailable();
+    return useKeychain;
   };
-
-  async function run<T>(op: (store: CredentialStore) => Promise<T>): Promise<T> {
-    const store = current();
-    try {
-      return await op(store);
-    } catch (err) {
-      if (!(err instanceof KeychainUnavailableError)) throw err;
-      active = file;
-      return op(file);
-    }
-  }
 
   return {
     get backend() {
-      return current().backend;
+      return keychainMode() ? keychain.backend : file.backend;
     },
-    get: (key) => run((s) => s.get(key)),
-    set: (key, value) => run((s) => s.set(key, value)),
-    delete: (key) => run((s) => s.delete(key)),
+    async get(key) {
+      if (!keychainMode()) return file.get(key);
+      return (await keychain.get(key)) ?? file.get(key);
+    },
+    async set(key, value) {
+      if (!keychainMode()) return file.set(key, value);
+      await keychain.set(key, value);
+      await file.delete(key);
+    },
+    async delete(key) {
+      if (keychainMode()) await keychain.delete(key);
+      await file.delete(key);
+    },
   };
 }

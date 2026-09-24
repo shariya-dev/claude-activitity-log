@@ -15,7 +15,7 @@ IDENTIFIER=com.6amtech.agent
 INSTALL_LOCATION="/Library/Application Support/6amAgent"
 
 usage() {
-  sed -n '6,7p' "$0" | sed 's/^# //' >&2
+  sed -n '5,6p' "$0" | sed 's/^# //' >&2
   exit 64
 }
 

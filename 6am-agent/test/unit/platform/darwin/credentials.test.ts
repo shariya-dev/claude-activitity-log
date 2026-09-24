@@ -74,7 +74,8 @@ describe('Keychain credential store', () => {
   it('rejects values with control characters and unsafe keys without running anything', async () => {
     const exec = fakeExec();
     const store = createKeychainStore(exec);
-    await expect(store.set('device_token', 'a\nb')).rejects.toThrow(/control/);
+    await expect(store.set('device_token', 'a\nb')).rejects.toThrow(/printable ASCII/);
+    await expect(store.set('device_token', 'tökén')).rejects.toThrow(/printable ASCII/);
     await expect(store.set('bad key"', 'v')).rejects.toThrow(/key/);
     expect(exec.calls).toHaveLength(0);
   });
@@ -155,17 +156,46 @@ describe('darwin credential store selection', () => {
     expect((await stat(path.join(dir, 'credentials.json'))).mode & 0o777).toBe(0o600);
   });
 
-  it('switches to the file when the Keychain refuses interaction (exit 36)', async () => {
+  it('surfaces a locked Keychain as an error, never as "not paired", and keeps the backend', async () => {
     const exec = fakeExec(() => ({ code: 36, stderr: 'User interaction is not allowed.' }));
     const store = createDarwinCredentialStore({
       exec,
       fileDir: dir,
       keychainAvailable: () => true,
     });
-    await store.set('device_token', SECRET);
-    expect(store.backend).toBe('file-0600');
+    await expect(store.get('device_token')).rejects.toThrow(/exit 36/);
+    await expect(store.set('device_token', SECRET)).rejects.toThrow(/exit 36/);
+    expect(store.backend).toBe('keychain');
+    await expect(stat(path.join(dir, 'credentials.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('finds a token a headless session left in the file when the Keychain has none', async () => {
+    await createFileStore(dir).set('device_token', SECRET);
+    const store = createDarwinCredentialStore({
+      exec: fakeExec(() => ({ code: 44 })),
+      fileDir: dir,
+      keychainAvailable: () => true,
+    });
     await expect(store.get('device_token')).resolves.toBe(SECRET);
-    expect(exec.calls).toHaveLength(1);
+  });
+
+  it('moves a value into the Keychain on set and deletes it from both stores', async () => {
+    await createFileStore(dir).set('device_token', 'old');
+    const exec = fakeExec((c) => (c.args[0] === 'find-generic-password' ? { code: 44 } : {}));
+    const store = createDarwinCredentialStore({
+      exec,
+      fileDir: dir,
+      keychainAvailable: () => true,
+    });
+    await store.set('device_token', SECRET);
+    await expect(createFileStore(dir).get('device_token')).resolves.toBeNull();
+
+    await createFileStore(dir).set('device_token', 'stale');
+    await store.delete('device_token');
+    await expect(createFileStore(dir).get('device_token')).resolves.toBeNull();
+    expect(exec.calls.map((c) => c.args[0])).toEqual(['-i', 'delete-generic-password']);
   });
 
   it('probes the Keychain only once', async () => {
