@@ -1,6 +1,6 @@
 # Claude Code Local Data Contract (PRD Phase 0, §13–14)
 
-Status: **macOS verified** (Claude Code 2.1.274, Darwin 25.3.0 arm64, 2026-09-24) · **Windows UNVERIFIED — to be closed by H24** · **Linux UNVERIFIED — to be closed by H24**.
+Status: **macOS verified** (Claude Code 2.1.274, Darwin 25.3.0 arm64, 2026-09-24; re-verified by H24 the same day with transcripts up to 2.1.280, §1) · **Windows UNVERIFIED — pending the H24 operator run** · **Linux UNVERIFIED — pending the H24 operator run**. Each open item has a documented reason and nullable handling in §13; the operator steps are in `docs/validation/platform-matrix.md` §5.
 
 This is the normative description of the Claude Code data the agent reads. The reader (H09), the platform adapters (H19–H21) and token validation (H23) build on it. Every statement is tagged:
 
@@ -22,6 +22,8 @@ The probe was run on a developer Mac with 1.19 GB of real data. Structure only; 
 | Files not ending in `\n` | 0 |
 | Claude Code `version` values seen | 17 distinct (up to 2.1.274) |
 | Timestamp shape | `dddd-dd-ddTdd:dd:dd.dddZ` on 100% of timestamped lines (225,206) |
+
+**H24 re-run (macOS, 2026-09-24, probe 1.1.0).** Probe runtime 1.67 s. 54 project dirs, 993 transcripts (624 main, 369 subagent), 1.29 GB, 282,858 lines; malformed 0, files not ending in `\n` 0; largest line 4.98 MB. Transcripts come from 17 Claude Code versions up to 2.1.280, while the CLI on PATH is 2.1.274: several Claude Code installs (CLI, VS Code extension) write to the same `~/.claude`, so `claude_code_version` reflects the newest writer. Line types are exactly the 18 known ones in §4. Dedup (§6) still holds: 105,047 usage lines, 50,496 ids, 36,133 split. Of the 7,963 split ids whose usage differs, 7,962 are non-decreasing with the max on the last line, and the remaining one is the all-zero trailing line. `message.id` is never missing; `requestId` is missing only on the 11 `<synthetic>` lines. `sessionId` equals the main file name for 100% of files. The project dir encoding matches for all 53 dirs the probe could compare (it compares dirs whose transcripts carry a `cwd`; the 54th had none). Timestamp shape is 100% `dddd-dd-ddTdd:dd:dd.dddZ`. The H24 live run (`docs/validation/platform-matrix.md`) synced this data end to end, and three spot-checked messages matched the transcripts exactly. No macOS correction to this contract was needed.
 
 To reproduce: `node tools/claude-data-probe/probe.mjs --out probe.json`. Add `--compare <previous.json>` for the append check. Tests: `node --test tools/claude-data-probe/probe.test.mjs`. (Give the file path; since Node 21 a directory argument is treated as a glob.)
 
@@ -319,10 +321,10 @@ The reports contain structure only. The probe exits with code 2 rather than writ
 | # | Item | Status | Mitigation |
 |---|---|---|---|
 | 1 | Format is internal and changes between versions [D] | risk | Tolerant parser; the probe is re-run on major Claude Code updates; skipped-line counts appear in diagnostics |
-| 2 | Windows paths and project-dir encoding | UNVERIFIED — H24 | Project from `cwd`, never the dir name |
-| 3 | Linux path, XDG | UNVERIFIED — H24 | XDG candidates checked defensively |
-| 4 | `CLAUDE_CONFIG_DIR` in a service environment; `.claude.json` location when it is set | UNVERIFIED — H24 | Adapter candidate order (§2); manual folder fallback |
-| 5 | WSL sessions invisible to the Windows agent | UNVERIFIED — H24 | Documented V1 limitation |
+| 2 | Windows paths and project-dir encoding | UNVERIFIED — pending H24 Windows operator run (no Windows machine was available on 2026-09-24) | Project from `cwd`, never the dir name, so an encoding difference cannot mis-attribute data. Discovery failure is reported in `diagnostics`, and the manual folder fallback applies. `ino` = 0 falls back to size/mtime (§11). |
+| 3 | Linux path, XDG | UNVERIFIED — pending H24 Ubuntu/Fedora operator run (no Linux machine was available on 2026-09-24) | `$HOME/.claude` first, XDG candidates checked defensively. A missing dir is "Claude not detected", never an error loop. |
+| 4 | `CLAUDE_CONFIG_DIR` in a service environment; `.claude.json` location when it is set | UNVERIFIED on every OS. The macOS LaunchAgent run used the default `~/.claude`, and no relocated dir was tested. | Adapter candidate order (§2); manual folder fallback. A missing `.claude.json` means no account: all account fields are nullable (§9). |
+| 5 | WSL sessions invisible to the Windows agent | UNVERIFIED — pending H24 Windows operator run | Documented V1 limitation: install the Linux agent inside WSL (its service needs systemd enabled in WSL; otherwise use the tarball and start the agent manually) |
 | 6 | No session end marker | verified absent | `ended_at` null; `sessions/<pid>.json` is a possible future signal |
 | 7 | Account is global, not per session | verified | Scan-time attribution (§9) |
 | 8 | Transcripts deleted after `cleanupPeriodDays` (30) [D] | risk | Frequent sync; missing-file handling |
@@ -334,16 +336,18 @@ The reports contain structure only. The probe exits with code 2 rather than writ
 
 | PRD §14 item | macOS | Windows | Linux | Where |
 |---|---|---|---|---|
-| Session structure | **verified** | UNVERIFIED — H24 | UNVERIFIED — H24 | §3–4 |
-| Stable session identifiers | **verified** (`sessionId` == file name, 100%, stable across resume) | UNVERIFIED | UNVERIFIED | §3, §8 |
-| Token fields | **verified** | UNVERIFIED | UNVERIFIED | §5–6 |
-| Project information | **verified** (`cwd` 100%) | UNVERIFIED | UNVERIFIED | §7 |
-| Model information | **verified** (`message.model` 100%) | UNVERIFIED | UNVERIFIED | §4–5 |
-| Account information | **verified** (global `oauthAccount`, nullable) | UNVERIFIED | UNVERIFIED | §9 |
-| Timestamps | **verified** (ISO-8601 ms `Z`) | UNVERIFIED | UNVERIFIED | §8 |
-| Session updates | **verified** (append-only, stable inode) | UNVERIFIED | UNVERIFIED | §11 |
-| Message/prompt availability | **verified** | UNVERIFIED | UNVERIFIED | §10 |
-| Completed vs active sessions | **verified**: no end marker; `ended_at` null | UNVERIFIED | UNVERIFIED | §8 |
+| Session structure | **verified**; re-verified H24 (18 known types, 0 malformed) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §3–4 |
+| Stable session identifiers | **verified** (`sessionId` == file name, 100%, stable across resume; H24 live run: `--continue` updated the same session row) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §3, §8 |
+| Token fields | **verified** (H24: stored values equal the transcripts for 3 spot-checked messages) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §5–6 |
+| Project information | **verified** (`cwd` 100%) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §7 |
+| Model information | **verified** (`message.model` 100%) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §4–5 |
+| Account information | **verified** (global `oauthAccount`, nullable) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §9 |
+| Timestamps | **verified** (ISO-8601 ms `Z`) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §8 |
+| Session updates | **verified** (append-only, stable inode) | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §11 |
+| Message/prompt availability | **verified** | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §10 |
+| Completed vs active sessions | **verified**: no end marker; `ended_at` null | UNVERIFIED — pending H24 operator | UNVERIFIED — pending H24 operator | §8 |
+
+The Windows and Linux columns stay open until an operator runs `docs/validation/platform-matrix.md` §5.1 step 1. Until then the agent's parser is tolerant (unknown types ignored, missing keys → null/0), so a format difference degrades to missing data rather than wrong data.
 
 ## 15. Fixtures
 

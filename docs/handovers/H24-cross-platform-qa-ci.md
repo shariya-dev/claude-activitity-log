@@ -1,5 +1,5 @@
 # H24 — Cross-Platform QA & CI Builds (PRD Phase 7 manual matrix, Phase 0 closure)
-Status: todo · Wave 6 · parallel with H22, H23 · Branch `handover/H24-cross-platform-qa`
+Status: partial — CI/build workflows and macOS run done; Windows/Ubuntu/Fedora operator runs pending (`docs/validation/platform-matrix.md`) · Wave 6 · parallel with H22, H23 · Branch `handover/H24-cross-platform-qa`
 
 ## Objective
 Build installers for all targets in CI, run the Phase 7 test matrix on real macOS, Windows, and Linux machines, and close every `UNVERIFIED` item in the Claude data contract.
