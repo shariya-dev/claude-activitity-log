@@ -1,285 +1,544 @@
-# 6AM Claude Code Activity Monitor: Setup and Installation Guide
+# 6AM Claude Code Activity Monitor: Production Deployment and Operations Guide
 
-This system has two parts:
+This guide takes the system from this repository to a live deployment at **https://sixammonitor.com**, with agents installed on developer computers. Section 13 covers running everything on one Mac for testing.
 
-- **Dashboard (backend):** a Laravel web app. It receives data from the agents and shows usage to admins and viewers.
-- **Agent:** a small background program on each developer's computer. It reads Claude Code's local usage data and sends it to the dashboard.
-
-Token counts come from Claude Code's local logs. They show usage, not billing, cost or quota.
-
-| Who | What they do | Section |
-|---|---|---|
-| Server admin | Installs and runs the dashboard | 1, 2 |
-| Dashboard admin | Adds developers, issues pairing codes, manages devices and settings | 3 |
-| Release owner | Builds the installers (macOS, Windows, Linux) | 4 |
-| Developer | Installs the agent and pairs it | 5 |
-| Anyone | Day-to-day commands, uninstall, troubleshooting | 6, 7, 8 |
-
-> **Platform status:** macOS is tested end to end. The Windows and Linux installers are built and unit-tested, but they haven't been validated on real machines yet. Treat them as beta.
+**Contents**
+1. How the system works
+2. Tech stack
+3. What changes for production (files to add, change, or leave out)
+4. Before you start: domain, server, accounts
+5. Deploy the backend and dashboard on the server
+6. Processes that must keep running
+7. First login and dashboard setup
+8. Build and sign the agent installers
+9. Distribute the installers
+10. Install the agent on a developer's computer
+11. Upgrades (backend and agent)
+12. Backups, security checklist and monitoring
+13. Local testing on one Mac
+14. Command reference and troubleshooting
 
 ---
 
-## 1. Run the dashboard locally (development, on a Mac with MAMP)
+## 1. How the system works
 
-**You need:** PHP 8.4, Composer, Node 24 and npm, and MAMP's MySQL 8 (127.0.0.1, port 8889, user `root`, password `root`).
-
-```sh
-cd agent-dashboard
-
-# first time only
-cp .env.example .env            # already set up for MAMP MySQL; note its DB_DATABASE name
-php artisan key:generate
-composer install
-npm ci && npm run build
-/Applications/MAMP/Library/bin/mysql80/bin/mysql -h127.0.0.1 -P8889 -uroot -proot \
-  -e "CREATE DATABASE IF NOT EXISTS claude_monitor"   # use the DB_DATABASE name from .env
-php artisan migrate
-php artisan monitor:create-admin you@6amtech.com --name="Your Name"   # asks for a password (at least 12 characters)
-
-# every time you work on it (two terminals)
-php artisan serve --port=8000   # dashboard + agent API at http://127.0.0.1:8000
-php artisan schedule:work       # background jobs: offline detection, data retention
+```
+ Developer computer (macOS / Windows / Linux)                 Server: sixammonitor.com
+┌───────────────────────────────────────────┐           ┌──────────────────────────────────────┐
+│ Claude Code writes local logs             │           │ Nginx (HTTPS, Let's Encrypt)         │
+│   ~/.claude/projects/**/*.jsonl           │           │   └─ PHP 8.4-FPM → Laravel 13 app    │
+│                │ read-only                │  HTTPS    │        ├─ /api/agent/v1/*  agent API │
+│ 6AM Agent (background service)            │ ───────►  │        └─ /login, /dashboard …  UI   │
+│   reads → checkpoints → gzip JSON batches │  bearer   │ MySQL 8 (all data)                   │
+│   device token in Keychain / DPAPI / keyring│  token  │ Cron → php artisan schedule:run      │
+└───────────────────────────────────────────┘           └──────────────────────────────────────┘
+                                                              ▲
+                              Admins and viewers ─ browser ───┘  https://sixammonitor.com/login
 ```
 
-Open **http://127.0.0.1:8000** and log in.
-
-Optional demo data, for exploring the pages without any agents: `php artisan db:seed --class=MonitorDemoSeeder`. It creates the login `viewer@example.com` / `password`. Use it only on a local database.
+- **One domain serves both** the dashboard (web pages) and the agent API (`https://sixammonitor.com/api/agent/v1`).
+- The agent **pairs once** with a one-time code from the dashboard. After that it authenticates with its own device token, sends a heartbeat every 5 minutes, and syncs new usage every 2 minutes. Both intervals are set in Tracking settings.
+- Data is written inside the HTTP request, so there is **no queue, no Redis and no worker**.
+- Token numbers come from Claude Code's local logs. They measure **usage, not billing, cost or quota**.
 
 ---
 
-## 2. Deploy the dashboard to a server (production)
+## 2. Tech stack
 
-### Server requirements
-- PHP 8.4 with the usual Laravel extensions (pdo_mysql, mbstring, openssl, json, zlib, intl), plus Composer.
-- MySQL 8.
-- A web server (Nginx or Apache) serving `agent-dashboard/public`.
-- **HTTPS with a valid certificate.** Company agent builds only talk to `https://` addresses.
-- Cron, for the scheduler. **No queue worker, Redis or similar is needed.**
+### Backend and dashboard (`agent-dashboard/`)
+| Layer | Technology |
+|---|---|
+| Language / runtime | **PHP 8.4** (the locked dependencies require ≥ 8.4.1) |
+| Framework | **Laravel 13** |
+| Database | **MySQL 8** |
+| Dashboard auth | Laravel Fortify: email + password login only. No sign-up, reset or verification. |
+| Agent auth | Laravel Sanctum personal access tokens (one per device, stored hashed) |
+| Frontend | **Inertia.js 3 + Vue 3.5 + TypeScript**, Tailwind CSS 4, reka-ui components, Chart.js (vue-chartjs), Lucide icons |
+| Routing in TS | Laravel Wayfinder (typed route helpers) |
+| Build tool | Vite (needs **Node 24** at build time only) |
+| Background jobs | Laravel Scheduler via cron: `monitor:mark-offline` every 5 min, `monitor:prune` daily. **No queue workers** (`QUEUE_CONNECTION=sync`). |
+| Encryption at rest | Prompt text (only if prompt tracking is ON) is encrypted with `APP_KEY` |
+| Tests / quality | Pest, Larastan (PHPStan), Pint; ESLint/Prettier, vue-tsc |
 
-### Install
+### Agent (`6am-agent/`)
+| Layer | Technology |
+|---|---|
+| Language | **TypeScript** |
+| Runtime | **Node 24**, bundled inside every installer, so developers don't install Node |
+| Bundler | esbuild: one file, `app/agent.cjs` |
+| Local state | `node:sqlite` (built into Node): checkpoints, sync cursor, settings cache (`state.db`, mode 0600) |
+| Validation | zod (the only runtime dependency) |
+| HTTP | `node:http`/`node:https` with gzip request bodies |
+| Credential storage | macOS Keychain · Windows DPAPI · Linux Secret Service (libsecret), or a 0600 file |
+| Background service | macOS LaunchAgent · Windows Scheduled Task · Linux systemd user service |
+| Installers | macOS `.pkg` (pkgbuild/productbuild) · Windows `.exe` (Inno Setup 6) · Linux `.deb`/`.rpm`/`.tar.gz` (nfpm) |
+| Tests / quality | Vitest, ESLint, Prettier, `tsc` |
+
+### Other folders
+- `e2e/`: end-to-end tests (real agent + real backend + fault-injecting proxy). Vitest.
+- `.github/workflows/ci.yml`: backend + agent checks. `agent-build.yml`: builds all installers.
+- `docs/`: architecture, API contract, handovers, validation reports.
+
+---
+
+## 3. What changes for production
+
+**No application code changes.** Going from local to sixammonitor.com is configuration only.
+
+### Files you create or change
+
+| # | File | Where | What |
+|---|---|---|---|
+| 1 | `agent-dashboard/.env` | on the **server** only (never committed) | Production settings (section 5.4) |
+| 2 | `6am-agent/build-config.json` | on the **build machine** (or the GitHub variable `AGENT_API_BASE_URL`) | `{"apiBaseUrl": "https://sixammonitor.com", "channel": "stable"}` |
+| 3 | Nginx site `/etc/nginx/sites-available/sixammonitor.com` | on the server | Serves `agent-dashboard/public` over HTTPS (section 5.5) |
+| 4 | Crontab entry for the web user | on the server | Runs the scheduler every minute (section 6) |
+| 5 | `6am-agent/package.json` → `"version"` | repo | Only when you release a **new** agent version (section 11.2) |
+
+That's **2 project files** (`.env` and `build-config.json`) plus **2 server config entries** (Nginx site and cron). Change the fifth file only for agent upgrades.
+
+### What to leave out in production
+| Leave out | Why |
+|---|---|
+| `php artisan serve`, `composer run dev`, `npm run dev`, `schedule:work` | Local development only. Production uses Nginx + PHP-FPM + cron. |
+| `php artisan db:seed --class=MonitorDemoSeeder` | Creates fake demo data and a `viewer@example.com` / `password` login |
+| `APP_DEBUG=true` | Leaks stack traces |
+| `agent-dashboard/.htaccess` (local only, not in git) | A MAMP safety net for this Mac; Nginx doesn't use it |
+| `build-config.example.json` for release builds | It is the **dev** channel pointed at `127.0.0.1`; release builds must use `stable` + `https` |
+| `6am-agent/dist/`, `node_modules/`, `vendor/` from your Mac | Build or install them on the target instead |
+| Queue workers, Redis, Horizon, Supervisor | Not used by design |
+
+---
+
+## 4. Before you start
+
+| Need | Detail |
+|---|---|
+| Domain | `sixammonitor.com`, with DNS **A record** → your server's public IP (and `www` if wanted) |
+| Server | Ubuntu 24.04 LTS, 2 vCPU / 4 GB RAM / 40 GB SSD is plenty to start. Ports 22, 80 and 443 open. |
+| TLS certificate | Let's Encrypt (free, auto-renewing). **Required:** release agents refuse plain `http`. |
+| Apple Developer account (for macOS) | "Developer ID Installer" certificate + notarization, so the `.pkg` opens without Gatekeeper warnings |
+| Windows code-signing certificate (optional) | Avoids SmartScreen warnings for the `.exe` |
+| Build machines | A Mac for the `.pkg`, a Windows PC for the `.exe`, Linux (or macOS with nfpm) for deb/rpm. **Or** let GitHub Actions build all of them (section 8.4). |
+
+---
+
+## 5. Deploy the backend and dashboard
+
+Run these on the server as a sudo user. Replace passwords and emails with your own.
+
+### 5.1 Install the system packages
 ```sh
-git clone <repo> /var/www/claude-monitor
-cd /var/www/claude-monitor/agent-dashboard
-cp .env.example .env
-php artisan key:generate
+sudo apt update && sudo apt -y upgrade
+sudo apt -y install software-properties-common curl git unzip nginx mysql-server
+sudo add-apt-repository -y ppa:ondrej/php && sudo apt update
+sudo apt -y install php8.4-fpm php8.4-cli php8.4-mysql php8.4-mbstring php8.4-xml \
+  php8.4-curl php8.4-zip php8.4-bcmath php8.4-intl php8.4-gd
+curl -sS https://getcomposer.org/installer | php && sudo mv composer.phar /usr/local/bin/composer
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt -y install nodejs   # build step only
+```
+
+### 5.2 Create the database
+```sh
+sudo mysql <<'SQL'
+CREATE DATABASE sixammonitor CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'sixammonitor'@'localhost' IDENTIFIED BY 'CHANGE-ME-strong-db-password';
+GRANT ALL PRIVILEGES ON sixammonitor.* TO 'sixammonitor'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+```
+
+### 5.3 Get the code
+```sh
+sudo mkdir -p /var/www && sudo chown $USER:www-data /var/www
+cd /var/www
+git clone https://github.com/shariya-dev/claude-activitity-log.git sixammonitor
+cd sixammonitor/agent-dashboard
 composer install --no-dev --optimize-autoloader
 npm ci && npm run build
-php artisan migrate --force
-php artisan monitor:create-admin admin@6amtech.com --name="Admin"
-php artisan config:cache && php artisan route:cache && php artisan view:cache
+cp .env.example .env
+php artisan key:generate
 ```
 
-### Important `.env` values
-| Key | Value |
-|---|---|
-| `APP_ENV` / `APP_DEBUG` | `production` / `false` |
-| `APP_URL` | `https://monitor.yourdomain.com` |
-| `APP_KEY` | Generated above. **Back it up somewhere safe.** Stored prompt text is encrypted with this key; if you lose it, stored prompts can't be read. |
-| `DB_*` | Your MySQL host, database, user and password |
-| `QUEUE_CONNECTION` | `sync` (keep it; there is no queue) |
-| `MONITOR_TRUSTED_PROXIES` | IP(s) of your load balancer or reverse proxy, comma separated, if one sits in front of the app. Leave it empty if clients connect directly. |
+### 5.4 Configure `.env`
+Edit `/var/www/sixammonitor/agent-dashboard/.env` and set these values. Leave the rest as they are.
 
-### Scheduler (cron)
-Add to the web user's crontab:
+```dotenv
+APP_NAME="6AM Monitor"
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://sixammonitor.com
+# APP_KEY=… was generated by key:generate. BACK IT UP (section 12).
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=sixammonitor
+DB_USERNAME=sixammonitor
+DB_PASSWORD=CHANGE-ME-strong-db-password
+
+QUEUE_CONNECTION=sync          # required: the system has no queue
+SESSION_DRIVER=database
+SESSION_SECURE_COOKIE=true     # cookies only over HTTPS
+CACHE_STORE=database
+
+LOG_CHANNEL=daily
+LOG_LEVEL=warning
+
+MONITOR_TIMEZONE=Asia/Dhaka    # day boundaries for the daily charts
+MONITOR_TRUSTED_PROXIES=       # empty if Nginx faces the internet directly;
+                               # the proxy IPs if behind Cloudflare or a load balancer
 ```
-* * * * * cd /var/www/claude-monitor/agent-dashboard && php artisan schedule:run >> /dev/null 2>&1
-```
-This marks devices offline every 5 minutes and prunes old data daily, according to the retention settings.
 
-### Backups
-Back up the MySQL database daily, and keep `APP_KEY` with the backups.
-
-### Upgrading
+Then:
 ```sh
+php artisan migrate --force
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+sudo chown -R $USER:www-data storage bootstrap/cache && sudo chmod -R ug+rwX storage bootstrap/cache
+```
+
+### 5.5 Nginx site
+Create `/etc/nginx/sites-available/sixammonitor.com`:
+```nginx
+server {
+    listen 80;
+    server_name sixammonitor.com www.sixammonitor.com;
+    root /var/www/sixammonitor/agent-dashboard/public;
+    index index.php;
+
+    client_max_body_size 4m;          # agent batches are ≤ 2 MB
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    }
+
+    location ~ /\.(?!well-known).* { deny all; }   # never serve .env or other dotfiles
+
+    location /downloads/ {                          # agent installers (section 9)
+        alias /var/www/sixammonitor-downloads/;
+        autoindex off;
+    }
+}
+```
+```sh
+sudo ln -s /etc/nginx/sites-available/sixammonitor.com /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo mkdir -p /var/www/sixammonitor-downloads
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 5.6 HTTPS
+```sh
+sudo apt -y install certbot python3-certbot-nginx
+sudo certbot --nginx -d sixammonitor.com -d www.sixammonitor.com --redirect -m admin@6amtech.com --agree-tos
+```
+Certbot adds the 443 server and the HTTP→HTTPS redirect, and renews automatically.
+
+### 5.7 Check it
+```sh
+curl -I https://sixammonitor.com/                            # 302 → /login
+curl -s https://sixammonitor.com/api/agent/v1/sync/status    # {"success":false,"error":{"code":"unauthenticated",…}}
+```
+
+---
+
+## 6. Processes that must keep running
+
+| Process | How it runs | Check |
+|---|---|---|
+| **Nginx** | systemd service | `systemctl status nginx` |
+| **PHP 8.4-FPM** | systemd service | `systemctl status php8.4-fpm` |
+| **MySQL 8** | systemd service | `systemctl status mysql` |
+| **Laravel scheduler** | cron, every minute | `crontab -l` |
+
+Add the scheduler to the crontab of the user that owns the app (`crontab -e`):
+```
+* * * * * cd /var/www/sixammonitor/agent-dashboard && php artisan schedule:run >> /dev/null 2>&1
+```
+It marks silent devices **offline** every 5 minutes and prunes data older than the retention setting daily.
+
+**Nothing else.** Don't run a queue worker, `php artisan serve`, `schedule:work`, Redis or Supervisor.
+
+Enable everything at boot: `sudo systemctl enable nginx php8.4-fpm mysql`.
+
+---
+
+## 7. First login and dashboard setup
+
+1. **Create the first admin** on the server. It asks for a password of at least 12 characters:
+   ```sh
+   cd /var/www/sixammonitor/agent-dashboard
+   php artisan monitor:create-admin admin@6amtech.com --name="Admin"
+   ```
+2. Open **https://sixammonitor.com** → the **Log in** page → you land on **/dashboard**. There is no sign-up, email verification or password reset.
+3. **Users** (admin): create accounts for the others. The roles are:
+   - **admin:** everything, including users, devices, pairing and settings
+   - **viewer:** read-only dashboards
+
+   **Can view prompts** is a separate permission.
+4. **Tracking settings** (admin), set once:
+   - Categories: prompt tracking, Git and Network are **OFF** by default. Turning prompt tracking ON collects prompt text (stored encrypted, every view audited).
+   - **Minimum agent version:** `1.0.0` to start. Raise it after rolling out a newer agent.
+   - **Retention:** how long data is kept.
+   - **Sync interval / heartbeat interval:** 120 s / 300 s by default.
+5. **Developers → Add developer:** one entry per person whose computer will run the agent.
+6. **Pairing code:** open the developer → **Generate pairing code**. You get a one-time code like `ABCD-2345`, valid **15 minutes**. Send it privately to the developer.
+
+**Locked-out user:** there is no "forgot password" email. Run this on the server, then have the person change it under Settings → Password:
+```sh
+php artisan tinker --execute="App\Models\User::where('email','person@6amtech.com')->first()->update(['password'=>'Temp-Password-2026'])"
+```
+
+---
+
+## 8. Build and sign the agent installers
+
+The server address is **baked into the installer at build time**. Build once per release and per OS; every developer uses the same installer.
+
+### 8.1 Point the build at production
+Create `6am-agent/build-config.json` (git-ignored; don't commit it):
+```json
+{ "apiBaseUrl": "https://sixammonitor.com", "channel": "stable" }
+```
+- `stable` builds **require `https://`**, and they ignore all developer environment overrides.
+- Don't add `/api/agent/v1`; the agent appends it.
+
+### 8.2 Build on each OS
+Once per build machine, run `cd 6am-agent && npm ci`.
+
+**macOS** (on a Mac with Xcode command-line tools):
+```sh
+npm run build -- --target darwin-arm64 --config build-config.json      # Apple Silicon
+npm run build -- --target darwin-x64   --config build-config.json      # Intel Macs
+packaging/macos/build-pkg.sh dist/darwin-arm64 1.0.0 \
+  --sign "Developer ID Installer: 6AM Technologies (TEAMID)" --notarize-profile 6am-notary
+packaging/macos/build-pkg.sh dist/darwin-x64 1.0.0 \
+  --sign "Developer ID Installer: 6AM Technologies (TEAMID)" --notarize-profile 6am-notary
+# → dist/macos/6amAgent-1.0.0-arm64.pkg, 6amAgent-1.0.0-x64.pkg
+```
+One-time notarization setup: `xcrun notarytool store-credentials 6am-notary --apple-id <id> --team-id <TEAMID>`.
+Without `--sign`/`--notarize-profile` the `.pkg` still works, but users must right-click → Open, or run `sudo installer`.
+
+**Windows** (Windows with Inno Setup 6.3+):
+```powershell
+npm run build -- --target win-x64 --config build-config.json
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1 `
+  -PayloadDir dist\win-x64 -Version 1.0.0 -SignToolPath <signtool.exe> -CertificateThumbprint <sha1>
+# → packaging\windows\Output\6amAgent-1.0.0-x64.exe
+```
+
+**Linux** (needs `nfpm`):
+```sh
+npm run build -- --target linux-x64 --config build-config.json
+packaging/linux/build-packages.sh dist/linux-x64 1.0.0 x64
+# → dist/packages/*.deb, *.rpm, *.tar.gz
+```
+
+### 8.3 Check a build before shipping
+```sh
+cat dist/darwin-arm64/app/build-config.json    # must show https://sixammonitor.com and "stable"
+dist/darwin-arm64/runtime/node dist/darwin-arm64/app/agent.cjs --version
+```
+
+### 8.4 Or let GitHub Actions build everything
+In the GitHub repo, go to **Settings → Secrets and variables → Actions**:
+- **Variable** `AGENT_API_BASE_URL` = `https://sixammonitor.com`. The workflow then creates a `stable` build-config itself.
+- **Secrets**, all optional; each one enables signing:
+  - macOS: `MACOS_INSTALLER_CERT_P12`, `MACOS_INSTALLER_CERT_PASSWORD`, `MACOS_SIGN_IDENTITY`
+  - macOS notarization: `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`
+  - Windows: `WINDOWS_CERT_PFX`, `WINDOWS_CERT_PASSWORD`
+
+Then run the **agent-build** workflow and download the installers from the run's artifacts.
+
+---
+
+## 9. Distribute the installers
+
+Upload them to the server's download folder:
+```sh
+scp dist/macos/6amAgent-1.0.0-*.pkg user@sixammonitor.com:/var/www/sixammonitor-downloads/
+scp 6amAgent-1.0.0-x64.exe 6am-agent_1.0.0_*.deb 6am-agent-1.0.0*.rpm user@sixammonitor.com:/var/www/sixammonitor-downloads/
+```
+Developers download from `https://sixammonitor.com/downloads/<file>`. Send each developer the link for their OS and, separately, their pairing code. MDM or an internal file share work too.
+
+---
+
+## 10. Install the agent on a developer's computer
+
+The flow is the same on every OS: **install → enter the pairing code → it runs in the background** and restarts after each login or reboot. Claude Code should already be installed and used on that computer. The agent reads Claude's local data and never changes it.
+
+> **Platform status:** macOS is tested end to end. Windows and Linux are built and unit-tested but not yet validated on real machines. Treat them as beta.
+
+### macOS
+1. Double-click `6amAgent-1.0.0-arm64.pkg` (Apple Silicon) or `…-x64.pkg` (Intel), then click through the installer.
+2. A **pairing page opens in the browser**. Enter the code. The first sync starts right away and covers the last 7 days.
+3. It runs as LaunchAgent `com.6amtech.agent`. It shows under System Settings → General → Login Items as `node`; keep it on.
+
+Terminal equivalent:
+```sh
+A="/Library/Application Support/6amAgent/current"
+"$A/runtime/node" "$A/app/agent.cjs" pair ABCD-2345
+"$A/runtime/node" "$A/app/agent.cjs" status
+```
+
+### Windows 10/11 (beta)
+1. Run `6amAgent-1.0.0-x64.exe`. No admin rights needed; it installs per user.
+2. Enter the code on the pairing page that opens.
+3. It runs as Scheduled Task `6amAgent` at logon, hidden.
+
+On company-managed PCs, PowerShell must be in FullLanguage mode (`$ExecutionContext.SessionState.LanguageMode`), because the token uses DPAPI.
+
+### Linux (beta)
+```sh
+sudo apt install ./6am-agent_1.0.0_amd64.deb     # or: sudo dnf install ./6am-agent-1.0.0.x86_64.rpm
+6am-agent pair                                   # as your normal user; type the code
+```
+There's also a no-sudo option: `tar xzf 6am-agent-1.0.0-linux-x64.tar.gz && ./6am-agent-1.0.0-linux-x64/install.sh`.
+To keep it running after logout: `sudo loginctl enable-linger <user>`.
+
+### Confirm it works
+- `status` shows **Paired: yes**, **Agent state: ok**, a recent **Last success**, and **Service: running**.
+- The dashboard shows the device **online** under **Devices**, and data under Sessions, Projects and Token Analytics.
+
+---
+
+## 11. Upgrades
+
+### 11.1 Backend (every deploy)
+```sh
+cd /var/www/sixammonitor/agent-dashboard
+php artisan down
 git pull
 composer install --no-dev --optimize-autoloader
 npm ci && npm run build
 php artisan migrate --force
 php artisan config:cache && php artisan route:cache && php artisan view:cache
+php artisan up
+sudo systemctl reload php8.4-fpm
 ```
+Agents keep their local checkpoints, so a few minutes of downtime loses nothing; they catch up afterwards.
+
+### 11.2 Agent (new version)
+1. Bump `"version"` in `6am-agent/package.json` (for example `1.0.0` → `1.1.0`), and commit.
+2. Rebuild and sign all installers (section 8), then upload them (section 9).
+3. Developers run the new installer over the old one. It keeps the pairing and data, and restarts the service.
+4. When everyone has updated, raise **Minimum agent version** in Tracking settings. Older agents then show **update required** and stop syncing, keeping their data until they update.
+
+### 11.3 Moving to a new domain
+The URL is baked into the installers, so rebuild them with the new `apiBaseUrl`. Every developer installs the new build and pairs again.
 
 ---
 
-## 3. Using the dashboard
+## 12. Backups, security and monitoring
 
-1. Go to your dashboard URL. The only public page is **Log in** (email + password). After you log in you land on the **Dashboard**. There is no sign-up, email verification or password reset. Accounts are created by an admin.
-2. **Users** (admin only): create dashboard accounts, and choose each user's role (admin or viewer) and whether they may view prompts. Everyone can change their own password under **Settings → Password**. There is no "forgot password" email. If someone is locked out, a server admin sets a new password:
-   ```sh
-   php artisan tinker --execute="App\Models\User::where('email','person@6amtech.com')->first()->update(['password' => 'NewPassword-2026'])"
-   ```
-   The password is hashed automatically. Tell the person to change it under Settings → Password.
-3. **Developers → Add developer:** add each person whose computer will run the agent.
-4. **Pairing:** open a developer and click **Generate pairing code**. You get a one-time code like `ABCD-2345`, valid for 15 minutes. Send it to the developer; they need it in section 5.
-5. **Devices:** each paired computer appears here with its status (online, stale, offline, outdated, disabled). The actions are:
-   - **Disable:** the agent stops sending data and checks back hourly. History is kept.
-   - **Enable:** the agent resumes on its own at its next hourly check. No new pairing is needed.
-   - **Generate re-pair code:** use it when a developer reinstalled or their agent shows "needs repair".
-   - **Sync now:** asks the agent to sync at its next heartbeat, within about a minute.
-6. **Sync:** per-device batch history, errors and health.
-7. **Tracking settings** (admin): turn data categories on or off. **Prompt tracking is OFF by default.** When it is ON, prompt text is collected and stored encrypted; only users with prompt permission can read it, and every view is recorded in **Audit logs**. The same page sets **minimum agent version** and data retention.
+### Backups
+- **Database, daily:**
+  ```sh
+  mysqldump --single-transaction -u sixammonitor -p sixammonitor | gzip > /var/backups/sixammonitor-$(date +%F).sql.gz
+  ```
+  Copy it off the server.
+- **`APP_KEY`:** store it in your password manager. If it's lost, encrypted prompt text can't be read, even with the database backup.
 
----
+### Security checklist
+- [ ] HTTPS only (certbot redirect), `SESSION_SECURE_COOKIE=true`, `APP_DEBUG=false`
+- [ ] Nginx root is `agent-dashboard/public`, and dotfiles are denied. Confirm with `curl -I https://sixammonitor.com/.env` → 403 or 404.
+- [ ] Firewall: `sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable`; MySQL not exposed
+- [ ] Strong DB password; the app DB user only has rights on its own database
+- [ ] Few admins; prompt permission only for those who need it; check **Audit logs** regularly
+- [ ] `MONITOR_TRUSTED_PROXIES` set if behind Cloudflare or a load balancer; otherwise leave it empty
+- [ ] Signed installers (Developer ID + notarization; Authenticode)
 
-## 4. Build the agent installers (release owner)
-
-Build on the matching operating system; the GitHub Actions workflow `.github/workflows/agent-build.yml` builds all of them. Every installer bundles its own Node runtime, so developers don't install Node.
-
-### 4.1 Point the build at your dashboard
-Create `6am-agent/build-config.json`:
-```json
-{ "apiBaseUrl": "https://monitor.yourdomain.com", "channel": "stable" }
-```
-- `stable` builds require `https://`.
-- For local testing, use `{ "apiBaseUrl": "http://127.0.0.1:8000", "channel": "dev" }`. This is `build-config.example.json`, the default when you pass no `--config`.
-
-### 4.2 Build per platform
-```sh
-cd 6am-agent
-npm ci
-```
-
-**macOS** (on a Mac):
-```sh
-npm run build -- --target darwin-arm64 --config build-config.json     # Apple Silicon; use darwin-x64 for Intel
-packaging/macos/build-pkg.sh dist/darwin-arm64 1.0.0
-# signed + notarized (recommended for distribution):
-packaging/macos/build-pkg.sh dist/darwin-arm64 1.0.0 \
-  --sign "Developer ID Installer: 6AM Technologies (TEAMID)" --notarize-profile 6am-notary
-```
-Result: `6amAgent-1.0.0-arm64.pkg`
-
-**Windows** (on Windows with Inno Setup 6.3+):
-```powershell
-npm run build -- --target win-x64 --config build-config.json
-powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1 -PayloadDir dist\win-x64 -Version 1.0.0
-# optional signing: -SignToolPath <signtool.exe> -CertificateThumbprint <sha1>
-```
-Result: `packaging\windows\Output\6amAgent-1.0.0-x64.exe`
-
-**Linux** (needs `nfpm` on PATH):
-```sh
-npm run build -- --target linux-x64 --config build-config.json
-packaging/linux/build-packages.sh dist/linux-x64 1.0.0 x64
-```
-Result in `dist/packages/`: `.deb`, `.rpm` and `.tar.gz`
-
-### 4.3 Distribute
-Put the installers somewhere your developers can download them, such as an internal file share or MDM. Send each developer the installer for their OS and, separately, their pairing code.
-
-> The agent version must be **≥ the minimum agent version** set in Tracking settings (default `1.0.0`). Otherwise the agent reports "update required" and doesn't sync.
+### Monitoring
+- **Dashboard → Sync:** failing devices and batch errors. **Devices:** offline, outdated, disabled.
+- **App errors:** `storage/logs/laravel-YYYY-MM-DD.log`
+- **Nginx and PHP errors:** `/var/log/nginx/error.log`, `journalctl -u php8.4-fpm`
 
 ---
 
-## 5. Install the agent on a developer's computer
+## 13. Local testing on one Mac
 
-The flow is the same everywhere: **install → pair with the code → it runs in the background by itself**, and it starts again after every login or reboot. Claude Code should already be installed and used on this computer. The agent only reads Claude's local data and never changes it.
+This uses the same code; only the addresses differ.
 
-### 5.1 macOS
-1. Double-click `6amAgent-<version>-<arch>.pkg` and follow the installer. If macOS blocks an unsigned package, right-click → **Open**, or run:
-   ```sh
-   sudo installer -pkg ~/Downloads/6amAgent-1.0.0-arm64.pkg -target /
-   ```
-2. When it finishes, a **pairing page opens in your browser**. Enter the code from your admin, and the agent pairs and starts its first sync.
-3. Done. It runs as a LaunchAgent (`com.6amtech.agent`) and shows under System Settings → General → Login Items as `node`. Keep it switched on.
-
-If the pairing page didn't open, or you want to use the terminal:
+**Backend** (Homebrew PHP 8.4, MAMP MySQL on port 8889). MAMP's Apache runs PHP 8.3, so it can't serve this app.
 ```sh
-AGENT='/Library/Application Support/6amAgent/current'
-"$AGENT/runtime/node" "$AGENT/app/agent.cjs" pair ABCD-2345
-"$AGENT/runtime/node" "$AGENT/app/agent.cjs" status
+cd /Applications/MAMP/htdocs/Claude-activity-agent/agent-dashboard
+php artisan migrate
+php artisan monitor:create-admin you@6amtech.com --name="You"
+php artisan serve --host=0.0.0.0 --port=8100     # dashboard: http://127.0.0.1:8100 or http://<wifi-ip>:8100
+php artisan schedule:work                        # second terminal
 ```
-Tip: add `alias 6am-agent='"/Library/Application Support/6amAgent/current/runtime/node" "/Library/Application Support/6amAgent/current/app/agent.cjs"'` to `~/.zshrc`, then use `6am-agent status`.
 
-### 5.2 Windows 10/11 (beta)
-1. Double-click `6amAgent-<version>-x64.exe`. No admin rights are needed; it installs for the current user only.
-2. A **pairing page opens in your browser**. Enter your code.
-3. Done. It runs as the Scheduled Task `6amAgent` at every logon, with no window.
-
-Terminal alternative (PowerShell):
-```powershell
-$A = "$env:LOCALAPPDATA\Programs\6amAgent"
-& "$A\runtime\node.exe" "$A\app\agent.cjs" pair ABCD-2345
-& "$A\runtime\node.exe" "$A\app\agent.cjs" status
-```
-On company-managed PCs, PowerShell must run in FullLanguage mode, because the token is protected with Windows DPAPI. Check with `$ExecutionContext.SessionState.LanguageMode`, and ask IT if it's restricted.
-
-### 5.3 Linux: Ubuntu/Debian/Fedora (beta)
-**With a package (needs sudo):**
+**Agent:**
 ```sh
-sudo apt install ./6am-agent_1.0.0_amd64.deb      # Ubuntu/Debian
-sudo dnf install ./6am-agent-1.0.0.x86_64.rpm      # Fedora/RHEL
-6am-agent pair            # as YOUR user, not root: type the code; it then installs the service
+cd /Applications/MAMP/htdocs/Claude-activity-agent/6am-agent
+echo '{ "apiBaseUrl": "http://127.0.0.1:8100", "channel": "dev" }' > build-config.local.json
+npm ci && npm run build -- --target darwin-arm64 --config build-config.local.json
+packaging/macos/build-pkg.sh dist/darwin-arm64 1.0.0      # → dist/macos/6amAgent-1.0.0-arm64.pkg
 ```
-**Without sudo (tarball):**
-```sh
-tar xzf 6am-agent-1.0.0-linux-x64.tar.gz
-./6am-agent-1.0.0-linux-x64/install.sh             # installs to ~/.local/share/6am-agent and asks for the code
-```
-It runs as a systemd **user** service (`6am-agent.service`). To keep it running after you log out and start it at boot, an admin runs `sudo loginctl enable-linger <your-user>` once.
-
-### 5.4 Check that it's working
-- `status` shows **Paired: yes**, a recent last sync, and service **running**.
-- In the dashboard, the device appears under **Devices** as online. Sessions, Projects and Token Analytics fill up after the first sync. The first sync covers the last 7 days.
+- Plain `http://` is allowed only for loopback (`127.0.0.1` / `localhost`) in **dev** builds. So the agent on the same Mac uses `127.0.0.1`, even though the dashboard is also reachable on the Wi-Fi IP.
+- To test from a *second* computer, the backend needs HTTPS.
 
 ---
 
-## 6. Everyday agent commands
+## 14. Command reference and troubleshooting
 
-`agent` below means the command for your OS: the alias or full path from section 5 on macOS and Windows, or `6am-agent` on Linux.
+### Agent commands
+`agent` means the full path (macOS: `"/Library/Application Support/6amAgent/current/runtime/node" "/Library/Application Support/6amAgent/current/app/agent.cjs"`; Windows: `& "$env:LOCALAPPDATA\Programs\6amAgent\runtime\node.exe" "$env:LOCALAPPDATA\Programs\6amAgent\app\agent.cjs"`; Linux: `6am-agent`).
 
-| Command | What it does |
+| Command | Purpose |
 |---|---|
-| `agent status` | Pairing, last sync, pending data, service state (`--json` for scripts) |
-| `agent sync-now` | Sync immediately (otherwise it syncs by itself every 2 minutes; admins can change this in Tracking settings) |
-| `agent diagnostics` | Health report for support; contains no tokens and no prompts |
-| `agent pair [CODE]` | Pair this computer (without a code: opens the pairing page) |
-| `agent repair` | Forget the pairing and pair again (needs a new code from an admin) |
-| `agent install-service` | (Re)install and start the background service |
-| `agent uninstall-service` | Stop the service and unregister the device (dashboard history is kept) |
-| `agent --version` | Show the version |
+| `agent status` | Pairing, last sync, service state (`--json` available) |
+| `agent sync-now` | Sync immediately |
+| `agent diagnostics` | Support report: no tokens, no prompts, safe to share |
+| `agent pair [CODE]` | Pair (without a code: opens the pairing page) |
+| `agent repair` | Forget the pairing and pair again (needs a re-pair code) |
+| `agent install-service` / `uninstall-service` | (Re)start the background service / remove it and deregister |
+| `agent --version` | Version |
 
-### Where things are
 | | macOS | Windows | Linux |
 |---|---|---|---|
 | Program | `/Library/Application Support/6amAgent/current` | `%LOCALAPPDATA%\Programs\6amAgent` | `/opt/6am-agent` or `~/.local/share/6am-agent` |
 | Data | `~/Library/Application Support/6amAgent` | `%LOCALAPPDATA%\6amAgent` | `~/.local/state/6am-agent` |
-| Logs | `~/Library/Logs/6amAgent` | `%LOCALAPPDATA%\6amAgent\logs` | `~/.local/state/6am-agent/logs`, plus `journalctl --user -u 6am-agent` |
-| Device token | login Keychain (`com.6amtech.agent`) | DPAPI-protected file | Secret Service keyring, or a `0600` file |
+| Logs | `~/Library/Logs/6amAgent` | `%LOCALAPPDATA%\6amAgent\logs` | `~/.local/state/6am-agent/logs`, `journalctl --user -u 6am-agent` |
+| Uninstall | `sudo "/Library/Application Support/6amAgent/current/uninstall.sh"` | Settings → Apps → 6AM Agent | `sudo apt remove 6am-agent` / `dnf remove`; tarball `uninstall.sh --purge` |
 
----
+Uninstalling or disabling a device never deletes its history in the dashboard.
 
-## 7. Uninstall
-
-- **macOS:** `sudo "/Library/Application Support/6amAgent/current/uninstall.sh"`
-- **Windows:** Settings → Apps → **6AM Agent** → Uninstall
-- **Linux:** `sudo apt remove 6am-agent` or `sudo dnf remove 6am-agent`; tarball: `~/.local/share/6am-agent/uninstall.sh --purge`
-
-Uninstalling marks the device **uninstalled** in the dashboard. Its history is always kept.
-
----
-
-## 8. Troubleshooting
-
-| What you see | Cause and fix |
+### Server commands
+| Command | Purpose |
 |---|---|
-| `status` says **needs repair** | The pairing was revoked or replaced. Get a re-pair code from an admin (Devices → Generate re-pair code) and run `agent pair CODE`. |
-| **update required** | The agent is older than the dashboard's minimum agent version. Install the newer build, or have an admin lower the minimum in Tracking settings. Nothing is lost: pending data syncs after updating. |
-| **device disabled** | An admin disabled this device. It resumes by itself within about an hour of being enabled again. |
-| **Claude data unavailable** | Claude Code has never run under this user, or uses a custom `CLAUDE_CONFIG_DIR`. Run Claude Code once; the agent looks again every 10 minutes. |
-| Pairing says the code is invalid | The code expired (after 15 minutes), was already used, or the developer is inactive. Generate a new one. |
-| Device shows **offline** | The computer is off or asleep, or the service is stopped. Run `agent status`, then `agent install-service`. |
-| Nothing new in the dashboard | Run `agent sync-now`, then check **Sync** in the dashboard for errors, and `agent diagnostics`. |
-| macOS: service won't start | Check that `node` is allowed under System Settings → Login Items, then run `agent install-service` again. |
-| Windows: pairing fails with `DPAPI protect failed` | PowerShell is in Constrained Language Mode. Ask IT to allow it for this app. |
-| Linux: `user service manager is not reachable` | Run it from a normal login session, not `sudo`/`su`, or have an admin run `sudo loginctl enable-linger <user>`. |
-| Local testing: agent refuses `http://` | Only `dev` builds may use `http://127.0.0.1`/`localhost`. Build with `build-config.example.json`, or set `AGENT_ALLOW_INSECURE_LOCALHOST=1`. |
+| `php artisan monitor:create-admin <email>` | Create an admin |
+| `php artisan migrate --force` | Apply database changes after a deploy |
+| `php artisan schedule:run` | What cron runs every minute |
+| `php artisan down` / `up` | Maintenance mode during deploys |
+| `php artisan config:cache` | Required after any `.env` change |
 
-When asking for help, send the output of `agent diagnostics`. It is safe to share: it contains no tokens and no prompts.
+### Troubleshooting
+| Symptom | Fix |
+|---|---|
+| Agent **needs repair** | The pairing was revoked or replaced. Admin: Devices → **Generate re-pair code**, then `agent pair CODE`. |
+| **update required** | The agent is below the minimum agent version. Install the new build, or lower the minimum. No data is lost. |
+| **device disabled** | An admin disabled it. After **Enable**, it resumes within about an hour. |
+| **Claude data unavailable** | Claude Code never ran under this user, or it uses a custom `CLAUDE_CONFIG_DIR`. The agent looks again every 10 minutes. |
+| Pairing code rejected | Expired (15 min), already used, or the developer is inactive. Generate a new one. |
+| Agent can't connect | `curl https://sixammonitor.com/api/agent/v1/sync/status` from that computer should return JSON with `unauthenticated`. Check DNS, the certificate and the firewall. |
+| Every sync fails with 500 | `storage/logs`, DB credentials, disk space. Agents keep their data and retry. |
+| Dashboard 500 after changing `.env` | `php artisan config:cache` |
+| Devices all show **offline** | Cron isn't running `schedule:run`, or the agents can't reach the server |
+| macOS "unidentified developer" | Sign and notarize the `.pkg` (section 8.2), or right-click → Open |
+| Windows `DPAPI protect failed` | PowerShell Constrained Language Mode. Ask IT to allow it. |
 
----
-
-## Privacy summary
-- The agent reads only Claude Code's data folder and the account block of `~/.claude.json`, plus `.git/config` and `HEAD` if Git tracking is ON. It never modifies them.
-- **Prompt text is not read or sent unless an admin turns prompt tracking ON.** Git and Network tracking are also OFF by default.
+### Privacy guarantees
+- The agent reads only Claude Code's data folder and the account block of `~/.claude.json` (and `.git/config`/`HEAD` only if Git tracking is ON). It never writes there.
+- **Prompt text is never read or sent unless an admin turns prompt tracking ON.** Git and Network are also OFF by default.
 - Network data never identifies a developer or device.
-- Disabling or uninstalling a device never deletes its history.
+- History is never deleted by disabling or uninstalling a device.
