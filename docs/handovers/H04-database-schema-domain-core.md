@@ -1,5 +1,5 @@
 # H04 — Database Schema & Domain Core (PRD Phase 1, §40–42)
-Status: todo · Wave 2 · parallel with H02, H03 · Branch `handover/H04-database-schema-domain-core`
+Status: done (2a3ade0) · Wave 2 · parallel with H02, H03 · Branch `handover/H04-database-schema-domain-core`
 
 ## Objective
 Implement the complete data model and the small shared domain core that every backend handover relies on: models, enums, factories, `TokenMath`, `OrgClock`, `AuditLog::record`, `TrackingSetting::current()`, and the device-auth middlewares.
