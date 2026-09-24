@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\Dashboard\PlaceholderController;
+use App\Http\Controllers\Dashboard\TrackingSettingsController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('admin/tracking', PlaceholderController::class)
-    ->middleware('can:configureTracking')
-    ->defaults('title', 'Tracking Settings')
-    ->name('tracking-settings.edit');
+Route::middleware('can:configureTracking')->group(function (): void {
+    Route::get('admin/tracking', [TrackingSettingsController::class, 'edit'])->name('tracking-settings.edit');
+    Route::put('admin/tracking', [TrackingSettingsController::class, 'update'])->name('tracking-settings.update');
+});

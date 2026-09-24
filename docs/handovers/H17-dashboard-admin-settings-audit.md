@@ -1,5 +1,5 @@
 # H17 — Admin: Tracking Settings, Retention, Users, Audit Log (PRD §23–26, §31, §52–53, §56)
-Status: todo · Wave 4 · parallel with H11–H16 · Branch `handover/H17-admin-settings-audit`
+Status: done (3d1dd19) · Wave 4 · parallel with H11–H16 · Branch `handover/H17-admin-settings-audit`
 
 ## Objective
 Central tracking settings (with versioning so agents pick up changes), initial-sync range, intervals, minimum agent version, retention policy + prune command, user/role management, and the audit log viewer.
