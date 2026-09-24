@@ -53,3 +53,11 @@ test('deregister never returns 426', function () {
     $this->postJson(DEREGISTER_URL, [], ContractExamples::agentHeaders(Device::factory()->create(), '1.0.0'))
         ->assertNoContent();
 });
+
+test('the uninstall audit entry never stores the agent IP while Network is off', function () {
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.10'])
+        ->postJson(DEREGISTER_URL, [], ContractExamples::agentHeaders(Device::factory()->create()))
+        ->assertNoContent();
+
+    expect(AuditLog::where('action', 'device.uninstalled')->sole()->ip_address)->toBeNull();
+});

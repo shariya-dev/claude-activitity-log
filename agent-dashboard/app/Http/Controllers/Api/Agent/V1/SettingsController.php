@@ -18,7 +18,8 @@ class SettingsController extends Controller
         $device = CurrentDevice::of($request);
         $settings = TrackingSetting::current();
 
-        $agentVersion = $request->header('X-Agent-Version') ?: $device->agent_version;
+        $header = $request->header('X-Agent-Version');
+        $agentVersion = AgentVersion::isValid($header) ? $header : $device->agent_version;
         if (AgentVersion::isOutdated($agentVersion, $settings->min_agent_version)) {
             return AgentError::agentOutdated($settings->min_agent_version);
         }

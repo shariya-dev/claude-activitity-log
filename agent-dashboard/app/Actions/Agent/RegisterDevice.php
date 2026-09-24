@@ -2,16 +2,17 @@
 
 namespace App\Actions\Agent;
 
+use App\Actions\Agent\Support\AgentAudit;
 use App\Actions\Agent\Support\InvalidPairingCode;
 use App\Enums\DeveloperStatus;
 use App\Enums\DeviceStatus;
 use App\Enums\SyncHealth;
 use App\Models\AgentSyncState;
-use App\Models\AuditLog;
 use App\Models\Device;
 use App\Models\PairingCode;
 use App\Models\TrackingSetting;
 use App\Support\OrgClock;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -27,6 +28,21 @@ class RegisterDevice
      * @throws InvalidPairingCode
      */
     public function handle(string $code, array $deviceInfo): array
+    {
+        try {
+            return $this->redeem($code, $deviceInfo);
+        } catch (UniqueConstraintViolationException) {
+            // Two first-time pairings of the same machine raced past the (gap-)locked lookup; the
+            // loser's transaction was rolled back, so redeeming again finds the row and re-pairs.
+            return $this->redeem($code, $deviceInfo);
+        }
+    }
+
+    /**
+     * @param  array{hostname: ?string, platform: string, platform_version: ?string, architecture: string, machine_fingerprint: string, agent_version: string, claude_code_version: ?string}  $deviceInfo
+     * @return array{device: Device, token: string}
+     */
+    private function redeem(string $code, array $deviceInfo): array
     {
         return DB::transaction(function () use ($code, $deviceInfo): array {
             $pairingCode = PairingCode::query()
@@ -54,7 +70,8 @@ class RegisterDevice
                 'status' => DeviceStatus::Active,
             ];
 
-            if (TrackingSetting::current()->device) {
+            // A hostname is only recorded while Device is ON; one already stored is kept as history.
+            if (TrackingSetting::current()->device && $deviceInfo['hostname'] !== null) {
                 $attributes['hostname'] = $deviceInfo['hostname'];
             }
 
@@ -82,7 +99,7 @@ class RegisterDevice
                     $syncState->update(['health' => SyncHealth::Offline]);
                 }
 
-                AuditLog::record('device.repaired', $device, ['pairing_code_id' => $pairingCode->id]);
+                AgentAudit::record('device.repaired', $device, ['pairing_code_id' => $pairingCode->id]);
             }
 
             $pairingCode->forceFill(['used_at' => $now, 'used_by_device_id' => $device->id])->save();

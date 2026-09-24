@@ -11,12 +11,16 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Re-activates a disabled device. Its tokens stay revoked, so the agent must pair again before it can sync.
+ * Re-activates a disabled device (any other status is left untouched). Its tokens stay revoked, so the agent must pair again before it can sync.
  */
 class EnableDevice
 {
     public function handle(Device $device, User $by): void
     {
+        if ($device->status !== DeviceStatus::Disabled) {
+            return;
+        }
+
         DB::transaction(function () use ($device, $by): void {
             $device->fill(['status' => DeviceStatus::Active, 'disabled_at' => null])->save();
 

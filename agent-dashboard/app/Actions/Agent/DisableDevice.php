@@ -13,11 +13,16 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Stops a device from syncing: its tokens are revoked, its history is kept (PRD §11).
+ * An uninstalled device is left untouched.
  */
 class DisableDevice
 {
     public function handle(Device $device, User $by): void
     {
+        if ($device->status === DeviceStatus::Uninstalled) {
+            return;
+        }
+
         DB::transaction(function () use ($device, $by): void {
             $device->fill(['status' => DeviceStatus::Disabled, 'disabled_at' => OrgClock::now()])->save();
             $device->tokens()->delete();

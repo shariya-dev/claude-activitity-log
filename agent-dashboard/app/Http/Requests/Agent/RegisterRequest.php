@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Agent;
 
 use App\Actions\Agent\Support\AgentError;
+use App\Actions\Agent\Support\AgentVersion;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -32,7 +33,7 @@ class RegisterRequest extends FormRequest
             'device.platform_version' => ['present', 'nullable', 'string', 'max:64'],
             'device.architecture' => ['required', 'string', 'max:64'],
             'device.machine_fingerprint' => ['required', 'string', 'regex:/^[0-9a-f]{64}$/'],
-            'device.agent_version' => ['required', 'string', 'max:32', 'regex:/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/'],
+            'device.agent_version' => ['required', 'string', 'max:32', 'regex:'.AgentVersion::PATTERN],
             'device.claude_code_version' => ['present', 'nullable', 'string', 'max:64'],
         ];
     }

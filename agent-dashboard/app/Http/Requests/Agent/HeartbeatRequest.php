@@ -4,6 +4,7 @@ namespace App\Http\Requests\Agent;
 
 use App\Actions\Agent\Support\AgentError;
 use App\Actions\Agent\Support\AgentTimestamp;
+use App\Actions\Agent\Support\AgentVersion;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -30,7 +31,7 @@ class HeartbeatRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'agent_version' => ['required', 'string', 'max:32', 'regex:/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/'],
+            'agent_version' => ['required', 'string', 'max:32', 'regex:'.AgentVersion::PATTERN],
             'claude_code_version' => ['present', 'nullable', 'string', 'max:64'],
             'platform_version' => ['present', 'nullable', 'string', 'max:64'],
             'hostname' => ['present', 'nullable', 'string', 'max:191'],

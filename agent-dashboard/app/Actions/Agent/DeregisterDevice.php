@@ -2,8 +2,8 @@
 
 namespace App\Actions\Agent;
 
+use App\Actions\Agent\Support\AgentAudit;
 use App\Enums\DeviceStatus;
-use App\Models\AuditLog;
 use App\Models\Device;
 use App\Support\OrgClock;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +19,7 @@ class DeregisterDevice
             $device->fill(['status' => DeviceStatus::Uninstalled, 'uninstalled_at' => OrgClock::now()])->save();
             $device->tokens()->delete();
 
-            AuditLog::record('device.uninstalled', $device);
+            AgentAudit::record('device.uninstalled', $device);
         });
     }
 }

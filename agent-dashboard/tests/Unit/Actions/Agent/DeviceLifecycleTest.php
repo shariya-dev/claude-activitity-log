@@ -107,3 +107,41 @@ test('RecordHeartbeat returns the contract fields', function () {
         'sync_requested' => true,
     ]);
 });
+
+test('EnableDevice leaves a device that is not disabled untouched', function () {
+    $device = Device::factory()->uninstalled()->create();
+
+    app(EnableDevice::class)->handle($device, $this->admin);
+
+    expect($device->fresh()->status)->toBe(DeviceStatus::Uninstalled)
+        ->and(AuditLog::where('action', 'device.enabled')->count())->toBe(0);
+});
+
+test('DisableDevice leaves an uninstalled device untouched', function () {
+    $device = Device::factory()->uninstalled()->create();
+
+    app(DisableDevice::class)->handle($device, $this->admin);
+
+    expect($device->fresh()->status)->toBe(DeviceStatus::Uninstalled)
+        ->and(AuditLog::where('action', 'device.disabled')->count())->toBe(0);
+});
+
+test('RegisterDevice turns a concurrent duplicate insert into a re-pair', function () {
+    $developer = Developer::factory()->create();
+    PairingCode::factory()->withCode('K7Q2-M9XD')->for($developer)->create();
+    $info = ContractExamples::load('register.request')['device'];
+
+    // Simulate the other request winning the race: the row appears right before this request inserts.
+    $raced = false;
+    Device::creating(function () use (&$raced, $developer, $info) {
+        if (! $raced) {
+            $raced = true;
+            Device::factory()->create(['developer_id' => $developer->id, 'machine_fingerprint' => $info['machine_fingerprint']]);
+        }
+    });
+
+    $result = app(RegisterDevice::class)->handle('K7Q2-M9XD', $info);
+
+    expect(Device::count())->toBe(1)
+        ->and($result['device']->id)->toBe(Device::sole()->id);
+});

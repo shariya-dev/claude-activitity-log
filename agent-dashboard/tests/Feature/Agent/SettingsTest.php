@@ -79,3 +79,24 @@ test('a disabled device gets 403', function () {
 test('settings require a device token', function () {
     $this->getJson(SETTINGS_URL, ['X-Agent-Version' => '1.0.0'])->assertUnauthorized();
 });
+
+test('a malformed X-Agent-Version falls back to the stored agent version', function () {
+    $setting = TrackingSetting::current();
+    $setting->min_agent_version = '1.2.0';
+    $setting->save();
+    $this->device->update(['agent_version' => '1.2.0']);
+
+    $this->getJson(SETTINGS_URL, ContractExamples::agentHeaders($this->device, 'garbage'))->assertOk();
+});
+
+test('authenticated endpoints are throttled to 60 requests per minute per device', function () {
+    $headers = ContractExamples::agentHeaders($this->device);
+
+    foreach (range(1, 60) as $attempt) {
+        $this->getJson(SETTINGS_URL, $headers)->assertOk();
+    }
+
+    $this->getJson(SETTINGS_URL, $headers)
+        ->assertStatus(429)
+        ->assertHeader('Retry-After');
+});

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Agent\IssuePairingCode;
 use App\Enums\DeviceStatus;
 use App\Enums\InitialSyncRange;
 use App\Models\AgentSyncState;
@@ -8,6 +9,7 @@ use App\Models\Developer;
 use App\Models\Device;
 use App\Models\PairingCode;
 use App\Models\TrackingSetting;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\Agent\ContractExamples;
 
@@ -230,3 +232,48 @@ test('neither the pairing code nor the token is written to the audit log', funct
     expect($audit)->not->toContain('CCCC-DDDD')->not->toContain('CCCCDDDD')
         ->and($audit)->not->toContain(explode('|', $token)[1]);
 });
+
+test('a code issued by IssuePairingCode redeems through /register', function () {
+    $developer = Developer::factory()->create();
+    $code = app(IssuePairingCode::class)->handle($developer, User::factory()->admin()->create());
+
+    $this->postJson(REGISTER_URL, ContractExamples::registerRequest($code))->assertCreated();
+
+    expect(Device::sole()->developer_id)->toBe($developer->id);
+});
+
+test('re-pairing keeps the stored hostname when none is sent or Device is off', function (bool $deviceCategory, ?string $sent) {
+    $developer = Developer::factory()->create();
+    pairingCodeFor($developer, 'AAAA-BBBB');
+    $this->postJson(REGISTER_URL, ContractExamples::registerRequest('AAAA-BBBB'))->assertCreated();
+
+    $setting = TrackingSetting::current();
+    $setting->device = $deviceCategory;
+    $setting->save();
+    pairingCodeFor($developer, 'CCCC-DDDD');
+    $this->postJson(REGISTER_URL, ContractExamples::registerRequest('CCCC-DDDD', ['hostname' => $sent]))->assertCreated();
+
+    expect(Device::sole()->hostname)->toBe('dev-laptop-01');
+})->with([
+    'device on, null hostname' => [true, null],
+    'device off, new hostname' => [false, 'renamed-laptop'],
+]);
+
+test('the re-pair audit entry stores the agent IP only when Network is on', function (bool $network, ?string $expected) {
+    $developer = Developer::factory()->create();
+    pairingCodeFor($developer, 'AAAA-BBBB');
+    pairingCodeFor($developer, 'CCCC-DDDD');
+    $setting = TrackingSetting::current();
+    $setting->network = $network;
+    $setting->save();
+
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.10'])
+        ->postJson(REGISTER_URL, ContractExamples::registerRequest('AAAA-BBBB'));
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.10'])
+        ->postJson(REGISTER_URL, ContractExamples::registerRequest('CCCC-DDDD'));
+
+    expect(AuditLog::where('action', 'device.repaired')->sole()->ip_address)->toBe($expected);
+})->with([
+    'network off' => [false, null],
+    'network on' => [true, '203.0.113.10'],
+]);
