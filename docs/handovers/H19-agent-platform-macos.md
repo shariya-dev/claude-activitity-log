@@ -1,5 +1,5 @@
 # H19 — macOS Adapter, LaunchAgent, .pkg Installer
-Status: todo · Wave 5 · parallel with H18, H20, H21 · Branch `handover/H19-platform-macos`
+Status: done (40ba030) · Wave 5 · parallel with H18, H20, H21 · Branch `handover/H19-platform-macos`
 
 ## Objective
 Implement `PlatformAdapter` for macOS and a `.pkg` that installs the bundled runtime + app, registers a per-user LaunchAgent, and opens pairing on first run.

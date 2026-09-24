@@ -479,6 +479,14 @@ Gate (all must pass, paste real output tails): CI green on a PR from this branch
 
 ---
 
+## Wave 6.5 — Follow-ups from Wave 6 (6 agents, parallel)
+
+Fixes for the bugs H22 (F1–F4) and H24 (FU-1…FU-6) found. Merge order: H28, H26, H27, H29, H30, H31, then run the full backend, agent and e2e suites on `main`. H25 needs all six merged.
+
+**Handovers:** [H26](H26-agent-api-error-envelopes.md) (F2, F3, F4, FU-2) · [H27](H27-agent-version-v1.md) (FU-1) · [H28](H28-placeholder-routes-test.md) (FU-3) · [H29](H29-account-observed-at.md) (F1) · [H30](H30-agent-dev-and-hygiene.md) (FU-4, FU-6) · [H31](H31-agent-initial-sync-memory.md) (FU-5)
+
+---
+
 ## Wave 7 — Solo (1 agent)
 
 Checks all 41 PRD acceptance criteria with evidence and writes the ops runbook. V1 is done when every criterion is `PASS`.
