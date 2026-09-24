@@ -10,7 +10,7 @@
   Works in Windows PowerShell 5.1 and PowerShell 7.
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1 -PayloadDir dist\win-x64 -Version 0.1.0
+  powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1 -PayloadDir dist\win-x64 -Version 1.0.0
 #>
 [CmdletBinding()]
 param(
@@ -41,7 +41,7 @@ $issPath = Join-Path $scriptDir '6amAgent.iss'
 # --- 1. Validate inputs (before looking for ISCC, so this is testable anywhere) ---
 
 if ($Version -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') {
-    throw "Invalid -Version '$Version'. Expected semver like 0.1.0 or 0.1.0-rc.1."
+    throw "Invalid -Version '$Version'. Expected semver like 1.0.0 or 1.0.0-rc.1."
 }
 
 if (-not (Test-Path -LiteralPath $PayloadDir -PathType Container)) {

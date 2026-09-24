@@ -27,7 +27,7 @@ cd e2e && npm ci && npm test        # about 1.5 min; the Sync Now scenario waits
    - `initial_sync_range: all`, so the fixtures' fixed dates are always in range.
    - `sync_interval_seconds: 3600`, so a sync happens only at start, on Sync Now, or on the local signal.
    - `heartbeat_interval_seconds: 60`.
-   - `min_agent_version: 0.1.0`, so the 0.1.0 agent is not outdated.
+   - `min_agent_version: 1.0.0` (the contract default), which the 1.0.0 agent meets.
 3. Starts `php artisan serve --port 8765 --no-reload` with 4 workers. The environment is passed in: DB, a random `APP_KEY`, `QUEUE_CONNECTION=sync`, and `CACHE_STORE=database`, `LOG_CHANNEL=stderr` and `MAIL_MAILER=array`. Laravel still loads `agent-dashboard/.env` if one exists, but every key that could send the run to a shared store is pinned here. The harness never writes `.env`.
 4. Builds the agent for the host target. The dev build-config points at the proxy (`http://127.0.0.1:8766`). The build writes to `6am-agent/dist/<host-target>/`, replacing any build there; `scripts/build.ts` has no output-dir option. Don't point an installed service at that directory on a machine that runs this suite.
 

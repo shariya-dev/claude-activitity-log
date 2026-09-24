@@ -1,6 +1,6 @@
 {
   "name": "6am-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "6AM Technologies Claude Code Activity Monitor desktop agent",
   "type": "module",

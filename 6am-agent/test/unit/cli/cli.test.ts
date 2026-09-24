@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createContainer, type AgentContainer } from '../../../src/app/container.js';
@@ -69,6 +69,19 @@ describe('cli', () => {
     });
     expect(code).toBe(0);
     expect(io.out).toMatch(/^6am-agent \d+\.\d+\.\d+\S*\n$/);
+  });
+
+  it('ships as 1.0.0, the contract default min_agent_version, and the unbundled fallback matches package.json', async () => {
+    const pkg = JSON.parse(
+      readFileSync(path.join(import.meta.dirname, '../../../package.json'), 'utf8'),
+    ) as { version: string };
+    expect(pkg.version).toBe('1.0.0');
+
+    await runCli(['--version'], {
+      stdout: (s) => (io.out += s),
+      createContainer: () => Promise.reject(new Error('must not be called')),
+    });
+    expect(io.out).toBe(`6am-agent ${pkg.version}\n`);
   });
 
   it('an unknown command exits 2 with usage', async () => {

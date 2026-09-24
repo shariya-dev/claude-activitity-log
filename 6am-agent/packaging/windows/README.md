@@ -14,8 +14,8 @@ From `6am-agent/`:
 
 ```powershell
 npm run build -- --target win-x64          # H18: produces dist\win-x64\{runtime,app,VERSION}
-powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1 -PayloadDir dist\win-x64 -Version 0.1.0
-# -> packaging\windows\Output\6amAgent-0.1.0-x64.exe
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1 -PayloadDir dist\win-x64 -Version 1.0.0
+# -> packaging\windows\Output\6amAgent-1.0.0-x64.exe
 ```
 
 Options: `-Arch arm64` (with `dist\win-arm64`), `-OutputDir <dir>`, and signing with `-SignToolPath <signtool.exe> -CertificateThumbprint <sha1>` (and optionally `-TimestampUrl`, default `http://timestamp.digicert.com`). Without both signing params the build is unsigned, which is fine for internal testing.
