@@ -1,5 +1,5 @@
 # H10 — Agent: Sync Engine (state, settings, API client, cursor, retry, heartbeat, runtime loop)
-Status: todo · Wave 3 · parallel with H05–H09 · Branch `handover/H10-agent-sync-engine`
+Status: done (be9f6af) · Wave 3 · parallel with H05–H09 · Branch `handover/H10-agent-sync-engine`
 
 ## Objective
 Everything in the agent core between a `ScanSource` and the network: SQLite state store, settings manager, HTTP API client, sync manager with the cursor-commit rule, backoff, heartbeat, and the runtime scheduler loop. Fully testable with fakes, with no dependency on the real reader or OS adapters.
