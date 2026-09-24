@@ -36,7 +36,9 @@ final class UsageFilters
 
     /**
      * Apply the dimension filters to a query over a table carrying the Dimension::column() foreign keys
-     * (usage_daily_rollups or claude_sessions).
+     * (usage_daily_rollups or claude_sessions). $table is a trusted, code-defined alias — never user input.
+     *
+     * @internal
      */
     public function applyDimensions(Builder $query, string $table): Builder
     {

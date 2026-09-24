@@ -85,15 +85,18 @@ test('total developers counts only active, non-deleted developers', function () 
     expect(app(ActivityStats::class)->totalDevelopers())->toBe(2);
 });
 
-test('active devices are the ones seen inside the org-tz range', function () {
+test('active devices are the ones seen or with session activity inside the org-tz range', function () {
     Device::factory()->create(['last_seen_at' => '2026-09-21 17:59:59']);
     Device::factory()->create(['last_seen_at' => null]);
 
     $stats = app(ActivityStats::class);
 
     expect($stats->activeDevices(DateRange::preset('today')))->toBe(2)
-        ->and($stats->activeDevices(DateRange::preset('yesterday')))->toBe(1)
-        ->and($stats->activeDevices(DateRange::preset('week')))->toBe(3);
+        // bobWin is last seen today but had session s4 yesterday, so it still counts for yesterday.
+        ->and($stats->activeDevices(DateRange::preset('yesterday')))->toBe(2)
+        ->and($stats->activeDevices(DateRange::preset('week')))->toBe(3)
+        // Last week: only bobWin's session s5 — no device was last seen then.
+        ->and($stats->activeDevices(DateRange::preset('week', CarbonImmutable::parse('2026-09-15 12:00:00', 'Asia/Dhaka'))))->toBe(1);
 });
 
 test('sessions count uses start time in the org-tz range and respects filters', function () {
@@ -197,6 +200,7 @@ dataset('sorts', [
     'last activity desc' => ['last_activity_at', 'desc', ['s2', 's3', 's1', 's4']],
     'started asc' => ['started_at', 'asc', ['s4', 's1', 's3', 's2']],
     'invalid sort falls back to started_at' => ['source_session_id; drop table devices', 'asc', ['s4', 's1', 's3', 's2']],
+    'joined developer column, id tie-break' => ['developer', 'asc', ['s1', 's2', 's3', 's4']],
     'invalid direction falls back to desc' => ['duration_seconds', 'sideways', ['s2', 's1', 's4', 's3']],
 ]);
 
@@ -205,3 +209,11 @@ test('session search sorting is whitelisted', function (string $sort, string $di
 
     expect(array_column($page->items(), 'id'))->toBe(array_map(fn (string $key) => $this->{$key}->id, $expected));
 })->with('sorts');
+
+test('session search clamps the page size', function () {
+    $search = app(SessionSearch::class);
+    $filters = new UsageFilters(DateRange::preset('week'));
+
+    expect($search->paginate($filters, null, 0)->perPage())->toBe(1)
+        ->and($search->paginate($filters, null, 10_000)->perPage())->toBe(SessionSearch::MAX_PER_PAGE);
+});

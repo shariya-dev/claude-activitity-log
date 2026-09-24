@@ -22,12 +22,21 @@ final class ActivityStats
     }
 
     /**
-     * Devices whose agent was last seen inside the range.
+     * Devices whose agent was last seen inside the range, or that had session activity overlapping it.
+     * last_seen_at alone only holds the latest heartbeat, so past ranges also need the session history.
      */
     public function activeDevices(DateRange $r): int
     {
-        return DB::table('devices')
-            ->whereBetween('last_seen_at', [$r->start->utc(), $r->end->utc()])
+        $start = $r->start->utc();
+        $end = $r->end->utc();
+
+        return DB::table('devices as dv')
+            ->whereBetween('dv.last_seen_at', [$start, $end])
+            ->orWhereExists(fn ($sessions) => $sessions->selectRaw('1')
+                ->from('claude_sessions as s')
+                ->whereColumn('s.device_id', 'dv.id')
+                ->where('s.last_activity_at', '>=', $start)
+                ->where('s.started_at', '<=', $end))
             ->count();
     }
 

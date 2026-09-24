@@ -12,6 +12,7 @@ use InvalidArgumentException;
 /**
  * An inclusive calendar-day range in the organization timezone (weeks start Monday).
  * `start` is 00:00:00 of the first day and `end` is 23:59:59.999999 of the last day, both in org tz.
+ * Callers using the constructor directly must pass org-tz start/end of day; prefer preset()/fromRequest().
  */
 final class DateRange
 {

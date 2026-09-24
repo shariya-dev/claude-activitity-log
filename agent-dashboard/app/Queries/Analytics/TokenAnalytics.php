@@ -29,6 +29,9 @@ final class TokenAnalytics
     }
 
     /**
+     * Periods cover the whole range; the first/last week or month bucket may be partial
+     * (only days inside the range are counted) while its label names the full period.
+     *
      * @return list<array{period: string, label: string, input_tokens: int, output_tokens: int, cache_creation_tokens: int, cache_read_tokens: int, actual_consumed_tokens: int, total_token_activity: int, message_count: int}>
      */
     public function trend(UsageFilters $f, ?Granularity $g = null): array

@@ -104,3 +104,13 @@ test('problem agents honours the limit', function () {
 
     expect(app(AgentHealth::class)->problemAgents(2))->toHaveCount(2);
 });
+
+test('a stale stored offline health does not outlive a reconnect, and unknown versions are not outdated', function () {
+    $back = healthDevice('2026-09-22 03:59:00', '1.2.0');
+    AgentSyncState::factory()->for($back)->create(['health' => 'offline']);
+    $unknown = healthDevice('2026-09-22 03:59:00', '1.2.0', ['agent_version' => null]);
+
+    expect(app(AgentHealth::class)->problemAgents())->toBe([])
+        ->and(app(AgentHealth::class)->summary()['outdated'])->toBe(0)
+        ->and($unknown->agent_version)->toBeNull();
+});

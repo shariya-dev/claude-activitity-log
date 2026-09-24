@@ -25,8 +25,13 @@ final class AgentHealth
         $summary = ['online' => 0, 'stale' => 0, 'offline' => 0, 'disabled' => 0, 'uninstalled' => 0, 'outdated' => 0, 'sync_failed' => 0];
 
         foreach ($this->classifiedDevices() as $device) {
-            if ($device['status'] !== DeviceStatus::Active->value) {
-                $summary[$device['status'] === DeviceStatus::Disabled->value ? 'disabled' : 'uninstalled']++;
+            $status = DeviceStatus::from($device['status']);
+
+            if ($status !== DeviceStatus::Active) {
+                $summary[match ($status) {
+                    DeviceStatus::Disabled => 'disabled',
+                    DeviceStatus::Uninstalled => 'uninstalled',
+                }]++;
 
                 continue;
             }
