@@ -1,5 +1,5 @@
 # H03 — Sync API Contract (PRD Phase 2, §27–39)
-Status: todo · Wave 2 · parallel with H02, H04 · Branch `handover/H03-sync-api-contract`
+Status: done (c8f6451) · Wave 2 · parallel with H02, H04 · Branch `handover/H03-sync-api-contract`
 
 ## Objective
 Freeze the agent ↔ backend contract as (1) a normative markdown spec, (2) JSON Schemas + canonical example payloads both sides test against, and (3) the agent's TypeScript/zod contract module, including the internal `ScanSource` interface between reader (H09) and sync engine (H10).
