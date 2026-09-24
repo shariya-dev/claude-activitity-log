@@ -1,5 +1,5 @@
 # H23 — Token Validation (PRD Phase 8)
-Status: todo · Wave 6 · parallel with H22, H24 · Branch `handover/H23-token-validation`
+Status: done (e1dd2e5) · Wave 6 · parallel with H22, H24 · Branch `handover/H23-token-validation`
 
 ## Objective
 Prove that token numbers are right from raw Claude data to dashboard: extraction, dedup, session/developer/project/date aggregation, and the Actual/Total formulas, using both controlled fixtures and a controlled real session.
