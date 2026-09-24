@@ -35,7 +35,6 @@ export interface ClaudeScannerDeps {
   source: ClaudeDataSource;
   deviceUid: () => string;
   fs?: FsLike;
-  clock?: () => Date;
   readGitRemote?: (cwd: string) => Promise<string | null>;
 }
 
@@ -63,7 +62,6 @@ class ActivityTracker {
 export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
   const { source, deviceUid } = deps;
   const fs = deps.fs ?? nodeFs;
-  const clock = deps.clock ?? (() => new Date());
   const readGitRemote = deps.readGitRemote ?? ((cwd: string) => readOriginRemote(cwd, fs));
   const tracker = new ActivityTracker();
   let peeked = false;
@@ -90,9 +88,11 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
       prompt: categories.prompt,
     };
     const since = opts.since === null ? null : opts.since.getTime();
+    // Read once per scan. `observed_at` is only a same-length stand-in for the chunk byte
+    // budget: `stampAccount` sets the real value from each chunk's own data.
     const account: AccountRecord | null =
       categories.account && source.globalConfigPath !== null
-        ? await readAccount(source.globalConfigPath, clock(), fs)
+        ? await readAccount(source.globalConfigPath, new Date(0), fs)
         : null;
 
     const identities = new Map<string, ProjectIdentity>();
@@ -162,7 +162,7 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
         cp !== undefined && cp.fileIdentity === identity && cp.offset <= stat.size ? cp.offset : 0;
       yield* readFile(file, start, stat, final);
     }
-    if (!agg.isEmpty()) yield agg.takeChunk();
+    if (!agg.isEmpty()) yield stampAccount(agg.takeChunk());
 
     async function* readFile(
       file: TranscriptFile,
@@ -186,7 +186,7 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
               const project = await identityFor(line.cwd);
               if (agg.hasRecords() && !agg.fits(line, project)) {
                 agg.setCheckpoint(partial(consumed));
-                yield agg.takeChunk();
+                yield stampAccount(agg.takeChunk());
               }
               agg.add(line, project);
             }
@@ -244,6 +244,24 @@ export function createClaudeScanner(deps: ClaudeScannerDeps): ScanSource {
       return tracker.lastMs === null ? null : new Date(tracker.lastMs);
     },
   };
+}
+
+/**
+ * Sets the chunk's `observed_at` to the newest activity among the chunk's sessions: the latest
+ * time the data shows this account in use. It is derived only from the lines being sent, so a
+ * re-scan of the same data from the same checkpoints builds byte-identical records and a retry
+ * reuses its batch_id (sync-api-v1 §8.2). An account travels only with sessions.
+ */
+function stampAccount(chunk: ScanChunk): ScanChunk {
+  const [account] = chunk.records.accounts;
+  if (account === undefined) return chunk;
+  if (chunk.records.sessions.length === 0) {
+    return { ...chunk, records: { ...chunk.records, accounts: [] } };
+  }
+  const observed_at = chunk.records.sessions
+    .map((s) => s.last_seen_at)
+    .reduce((newest, at) => (at > newest ? at : newest));
+  return { ...chunk, records: { ...chunk.records, accounts: [{ ...account, observed_at }] } };
 }
 
 function isRecordLine(line: ParsedLine, since: number | null): line is RecordLine {

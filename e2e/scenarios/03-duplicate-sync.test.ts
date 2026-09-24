@@ -59,7 +59,6 @@ describe('03 duplicate sync (AC16, contract §8.2)', () => {
     let retried: Capture;
 
     beforeAll(async () => {
-      // With Account ON the agent cannot rebuild an identical batch (known bug F1 below).
       await updateSettings(scn.ctx.backend, { account: false });
       await scn.pair();
       ({ dropped, retried } = await dropThenRetry(scn));
@@ -131,9 +130,10 @@ describe('03 duplicate sync (AC16, contract §8.2)', () => {
     });
 
     it('the retry stores no duplicate rows', async () => {
-      // The dropped batch was committed by the backend, and the retry was processed again.
+      // The dropped batch was committed by the backend; the retry is the same batch and is
+      // answered from the stored response, so no new batch row is written.
       expect(dropped.status).toBe(200);
-      expect(await scn.deviceCount('sync_batches')).toBe(3);
+      expect(await scn.deviceCount('sync_batches')).toBe(2);
       expect(payload(dropped).accounts).toHaveLength(1);
       expect(payload(retried).usage.map((u) => u.source_message_id)).toEqual(
         payload(dropped).usage.map((u) => u.source_message_id),
@@ -151,12 +151,12 @@ describe('03 duplicate sync (AC16, contract §8.2)', () => {
     });
 
     // Contract §8.2: a retry of the same chunk MUST reuse the batch_id with byte-identical
-    // records. The agent stamps AccountRecord.observed_at with the scan time
-    // (core/claude/accountReader.ts), so every re-scan builds a different batch and the backend
-    // processes it again instead of replaying. Follow-up F1 in e2e/README.md; flip to `it` once fixed.
-    it.fails('KNOWN BUG F1: the retry reuses the batch_id with byte-identical records', () => {
+    // records. AccountRecord.observed_at is derived from the chunk's data, not the scan time
+    // (F1 in e2e/README.md, fixed by H29), so the re-scan rebuilds the same batch.
+    it('F1: the retry reuses the batch_id with byte-identical records', () => {
       expect(payload(retried).sync.batch_id).toBe(payload(dropped).sync.batch_id);
       expect(retried.requestBody).toBe(dropped.requestBody);
+      expect(retried.responseJson).toEqual(dropped.responseJson);
     });
   });
 });
