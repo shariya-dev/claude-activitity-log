@@ -1,9 +1,8 @@
 <?php
 
-use App\Http\Controllers\Dashboard\PlaceholderController;
+use App\Http\Controllers\Dashboard\SyncMonitorController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('sync', PlaceholderController::class)
+Route::get('sync', SyncMonitorController::class)
     ->middleware('can:viewMonitoring')
-    ->defaults('title', 'Sync Monitor')
     ->name('sync.index');
