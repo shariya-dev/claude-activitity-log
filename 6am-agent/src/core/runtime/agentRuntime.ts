@@ -46,6 +46,47 @@ function describeError(err: unknown): Record<string, unknown> {
 }
 
 /**
+ * Semver precedence (semver.org §11): numeric major.minor.patch, then a pre-release sorts before
+ * its release. Returns <0, 0 or >0. Build metadata is ignored.
+ */
+export function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => {
+    const version = v.split('+')[0] ?? '';
+    const dash = version.indexOf('-');
+    const core = dash < 0 ? version : version.slice(0, dash);
+    return {
+      nums: core.split('.').map((n) => Number.parseInt(n, 10) || 0),
+      pre: dash < 0 ? null : version.slice(dash + 1),
+    };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < 3; i += 1) {
+    const diff = (x.nums[i] ?? 0) - (y.nums[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  if (x.pre === null || y.pre === null) return (x.pre === null ? 1 : 0) - (y.pre === null ? 1 : 0);
+  const xs = x.pre.split('.');
+  const ys = y.pre.split('.');
+  for (let i = 0; i < Math.max(xs.length, ys.length); i += 1) {
+    const p = xs[i];
+    const q = ys[i];
+    if (p === undefined || q === undefined) return p === undefined ? -1 : 1;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) {
+      const diff = Number(p) - Number(q);
+      if (diff !== 0) return diff;
+    } else if (pn !== qn) {
+      return pn ? -1 : 1;
+    } else if (p !== q) {
+      return p < q ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/**
  * The agent's scheduler (PRD §33, contract §3.3, §9): a chained 60 s tick that refreshes settings,
  * sends heartbeats and starts syncs when due. At most one sync runs at a time; backoff is in
  * memory. `start()` never throws: every step catches, logs and continues.
@@ -192,6 +233,26 @@ export function createAgentRuntime(d: {
   // ---------------------------------------------------------------------------------------------
   // Heartbeat
 
+  /**
+   * Whether the backend now accepts this agent version. A heartbeat 200 alone is not proof: only
+   * `GET /settings` answering 200 (its 426 check uses the same `X-Agent-Version`, contract §2) with
+   * a `min_agent_version` this version meets. Any failure keeps `update_required`.
+   */
+  const versionAccepted = async (agentVersion: string): Promise<boolean> => {
+    let fresh: TrackingSettings;
+    try {
+      fresh = await d.api.settings();
+    } catch (err) {
+      onRefreshError(err);
+      return false;
+    }
+    const accepted = compareSemver(agentVersion, fresh.min_agent_version) >= 0;
+    if (!accepted) {
+      d.logger.warn('agent_update_required', { min_agent_version: fresh.min_agent_version });
+    }
+    return accepted;
+  };
+
   const heartbeat = async (): Promise<void> => {
     lastHeartbeatAt = now();
     const settings = loadedSettings();
@@ -220,7 +281,10 @@ export function createAgentRuntime(d: {
     }
 
     const stored = d.state.get('agent_state');
-    if (stored === 'device_disabled' || stored === 'update_required') {
+    if (
+      stored === 'device_disabled' ||
+      (stored === 'update_required' && (await versionAccepted(info.agent_version)))
+    ) {
       d.state.set('agent_state', 'ok');
       d.logger.info('agent_state_cleared', { previous: stored });
     }

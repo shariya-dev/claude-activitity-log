@@ -94,7 +94,8 @@ export const ADMIN_EMAIL = 'admin@e2e.test';
  * Tracking settings every scenario starts from. `initial_sync_range: all` keeps the fixtures'
  * fixed 2026-09 timestamps in range whatever the date the suite runs on; the long sync interval
  * means the daemon syncs only at start, on Sync Now and on the local sync-now signal, so each
- * scenario controls exactly when a sync happens. The agent is 0.1.0, hence min_agent_version.
+ * scenario controls exactly when a sync happens. min_agent_version is the contract default 1.0.0,
+ * which the 1.0.0 agent meets.
  */
 export const BASELINE_SETTINGS = {
   session: true,
@@ -109,7 +110,7 @@ export const BASELINE_SETTINGS = {
   initial_sync_range: 'all',
   sync_interval_seconds: 3600,
   heartbeat_interval_seconds: 60,
-  min_agent_version: '0.1.0',
+  min_agent_version: '1.0.0',
   retention_days: null,
 } as const;
 

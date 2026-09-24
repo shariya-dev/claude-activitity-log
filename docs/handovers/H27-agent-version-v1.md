@@ -1,5 +1,5 @@
 # H27 — Ship the Agent as 1.0.0 & Fix the 426 Loop
-Status: todo · Follow-up (Wave 6 finding FU-1, Critical) · parallel with H26, H28–H31 · Branch `handover/H27-agent-version`
+Status: done (d48b644) · Follow-up (Wave 6 finding FU-1, Critical) · parallel with H26, H28–H31 · Branch `handover/H27-agent-version`
 
 ## Objective
 A fresh backend (`migrate:fresh --seed`, `min_agent_version` default `1.0.0`, frozen in the contract) accepts syncs from a freshly built agent, and an outdated agent stays in `update_required` instead of looping 426 → heartbeat → 426.

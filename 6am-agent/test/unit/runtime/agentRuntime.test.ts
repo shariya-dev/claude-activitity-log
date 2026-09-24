@@ -1,18 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { HeartbeatResponse, TrackingSettings } from '../../../src/core/contract/index.js';
-import { createAgentRuntime } from '../../../src/core/runtime/agentRuntime.js';
+import { compareSemver, createAgentRuntime } from '../../../src/core/runtime/agentRuntime.js';
 import { systemClock } from '../../../src/core/runtime/clock.js';
 import {
   createSettingsManager,
   type SettingsManager,
 } from '../../../src/core/settings/settingsManager.js';
 import { openStateStore, type StateStore } from '../../../src/core/state/stateStore.js';
-import type { SyncOutcome } from '../../../src/core/sync/syncManager.js';
+import { createSyncManager, type SyncOutcome } from '../../../src/core/sync/syncManager.js';
 import type { AgentInfo } from '../../../src/core/sync/types.js';
 import { makeAgentInfo } from '../../helpers/fakes/agentInfo.js';
-import { FakeApiClient, apiError, networkError } from '../../helpers/fakes/apiClient.js';
+import {
+  FakeApiClient,
+  apiError,
+  networkError,
+  okSyncResponse,
+} from '../../helpers/fakes/apiClient.js';
 import { createMemoryLogger } from '../../helpers/fakes/logger.js';
-import { FakeScanSource } from '../../helpers/fakes/scanSource.js';
+import { FakeScanSource, usageRecord } from '../../helpers/fakes/scanSource.js';
 import { makeSettings } from '../../helpers/fakes/settings.js';
 
 const START = new Date('2026-09-24T10:00:00.000Z');
@@ -43,6 +48,25 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+describe('compareSemver', () => {
+  it.each([
+    ['1.0.0', '1.0.0', 0],
+    ['0.1.0', '1.0.0', -1],
+    ['1.0.0', '0.9.9', 1],
+    ['1.10.0', '1.9.0', 1],
+    ['1.0.1', '1.0.0', 1],
+    ['1.0.0-rc.1', '1.0.0', -1],
+    ['1.0.0', '1.0.0-rc.1', 1],
+    ['1.0.0-rc.2', '1.0.0-rc.10', -1],
+    ['1.0.0-alpha', '1.0.0-alpha.1', -1],
+    ['1.0.0-1', '1.0.0-alpha', -1],
+    ['1.0.0-beta', '1.0.0-alpha', 1],
+    ['1.0.0+build.5', '1.0.0', 0],
+  ])('%s vs %s', (a, b, sign) => {
+    expect(Math.sign(compareSemver(a, b))).toBe(sign);
+  });
+});
 
 describe('agentRuntime', () => {
   let state: StateStore;
@@ -230,7 +254,16 @@ describe('agentRuntime', () => {
       expect(api.count('heartbeat')).toBe(3);
     });
 
-    it('update_required is cleared by a 200 heartbeat', async () => {
+    it('update_required is cleared by a 200 heartbeat once /settings confirms the version is accepted', async () => {
+      await runtime.start();
+      state.set('agent_state', 'update_required');
+      const settingsCalls = api.count('settings');
+      await advance(5 * MIN);
+      expect(api.count('settings')).toBe(settingsCalls + 1);
+      expect(state.get('agent_state')).toBe('ok');
+    });
+
+    it('update_required with no cached settings is cleared on the first 200 heartbeat and syncing starts', async () => {
       state.set('agent_state', 'update_required');
       await runtime.start();
       expect(state.get('agent_state')).toBe('ok');
@@ -245,6 +278,94 @@ describe('agentRuntime', () => {
       await advance(5 * MIN);
 
       expect(runOnce).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('update_required (contract §9.2: 426 ⇒ update_required, keep checkpoints)', () => {
+    /** Runtime over the real sync manager, so a /sync 426 goes through the real error policy. */
+    const withRealSync = () => {
+      scan.files = [{ path: '/p/a.jsonl', usage: [usageRecord('msg-1'), usageRecord('msg-2')] }];
+      const sync = createSyncManager({ api, state, scan, settings, agentInfo, logger });
+      return createAgentRuntime({
+        sync,
+        api,
+        state,
+        settings,
+        scan,
+        agentInfo,
+        clock: systemClock,
+        logger,
+      });
+    };
+
+    it('a heartbeat 200 does not clear update_required while the backend still requires a newer version', async () => {
+      // A backend whose /sync refuses 1.0.0 but whose heartbeat answers 200 (the H24 loop).
+      useServerSettings(
+        makeSettings({ min_agent_version: '2.0.0', heartbeat_interval_seconds: 300 }),
+      );
+      api.syncHandler = () => {
+        throw apiError('agent_outdated');
+      };
+      runtime = withRealSync();
+
+      await runtime.start();
+      await advance(0);
+      expect(api.count('sync')).toBe(1);
+      expect(state.get('agent_state')).toBe('update_required');
+
+      await advance(30 * MIN);
+
+      expect(api.count('heartbeat')).toBe(7);
+      expect(api.count('sync')).toBe(1);
+      expect(state.get('agent_state')).toBe('update_required');
+      expect(api.heartbeatRequests.at(-1)?.agent_state).toBe('update_required');
+      expect(state.checkpoints().size).toBe(0);
+      expect(state.get('server_cursor')).toBeNull();
+      expect(logger.entries.some((e) => e.msg === 'agent_state_cleared')).toBe(false);
+    });
+
+    it('a /settings 426 after a heartbeat 200 keeps update_required', async () => {
+      await runtime.start();
+      state.set('agent_state', 'update_required');
+      const settingsCalls = api.count('settings');
+      api.queue('settings', apiError('agent_outdated'));
+      await advance(5 * MIN);
+      expect(api.count('settings')).toBe(settingsCalls + 1);
+      expect(state.get('agent_state')).toBe('update_required');
+      expect(runOnce).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed /settings check after a heartbeat 200 keeps update_required', async () => {
+      await runtime.start();
+      state.set('agent_state', 'update_required');
+      api.queue('settings', networkError());
+      await advance(5 * MIN);
+      expect(state.get('agent_state')).toBe('update_required');
+      expect(runOnce).toHaveBeenCalledTimes(1);
+    });
+
+    it('once an admin lowers min_agent_version, the next heartbeat clears it and the sync resumes from the kept checkpoints', async () => {
+      useServerSettings(makeSettings({ min_agent_version: '2.0.0' }));
+      api.syncHandler = () => {
+        throw apiError('agent_outdated');
+      };
+      runtime = withRealSync();
+      await runtime.start();
+      await advance(0);
+      expect(state.get('agent_state')).toBe('update_required');
+
+      useServerSettings(makeSettings({ version: 2, min_agent_version: '1.0.0' }));
+      api.syncHandler = (req) => okSyncResponse(req);
+      await advance(5 * MIN);
+
+      expect(state.get('agent_state')).toBe('ok');
+      expect(api.count('sync')).toBe(2);
+      expect(api.syncRequests[1]?.sync.cursor).toBeNull();
+      expect(api.syncRequests[1]?.usage.map((u) => u.source_message_id)).toEqual([
+        'msg-1',
+        'msg-2',
+      ]);
+      expect(state.get('server_cursor')).toBe('cursor-1');
     });
   });
 
