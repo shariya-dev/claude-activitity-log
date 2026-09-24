@@ -12,7 +12,8 @@ use App\Support\OrgClock;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Stops a device from syncing: its tokens are revoked, its history is kept (PRD §11).
+ * Stops a device from syncing, keeping its history (PRD §11). Its token is kept so the agent is told
+ * `403 device_disabled` and probes hourly (sync-api-v1 §9.2); EnableDevice resumes on the same token.
  * An uninstalled device is left untouched.
  */
 class DisableDevice
@@ -25,7 +26,6 @@ class DisableDevice
 
         DB::transaction(function () use ($device, $by): void {
             $device->fill(['status' => DeviceStatus::Disabled, 'disabled_at' => OrgClock::now()])->save();
-            $device->tokens()->delete();
 
             AgentSyncState::updateOrCreate(['device_id' => $device->id], ['health' => SyncHealth::Disabled]);
 

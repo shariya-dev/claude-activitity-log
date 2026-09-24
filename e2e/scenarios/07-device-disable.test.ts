@@ -44,33 +44,27 @@ describe('07 device disable (AC39, PRD §11, §35)', () => {
 
     const refused = await scn.agent(['sync-now']);
     expect(refused.code).toBe(1);
-    // DisableDevice (H05) revokes the device's tokens, so the refusal is a 401 (the token no
-    // longer exists), not the 403 `device_disabled` the H22 handover text anticipated.
-    expect(scn.captures(SYNC_PATH).at(-1)?.status).toBe(401);
+    // DisableDevice keeps the device token (H26), so `device.active` refuses with 403
+    // `device_disabled` (contract §9.2), not a token-revoked 401.
+    expect(scn.captures(SYNC_PATH).at(-1)?.status).toBe(403);
     expect(await scn.deviceCount('session_usage')).toBe(scn.expected.usageIds.length);
     // The agent keeps its position: the refused lines stay pending for after a re-pair.
     const basic = scn.sessionFile(SESSION.basic);
     expect(scn.checkpoints().get(basic)?.offset).toBeLessThan(statSync(basic).size);
   });
 
-  // Contract §9.1/§9.2: a 401 carries the error envelope (`unauthenticated`), and the agent then
-  // enters needs_repair and stops calling /sync. The backend answers Laravel's default
-  // `{"message":"Unauthenticated."}` on every agent endpoint instead, so the agent classifies it
-  // as `invalid_response`, stays `ok` and keeps retrying with backoff. Follow-up F2 in
-  // e2e/README.md; flip to `it` once fixed.
-  it.fails(
-    'KNOWN BUG F2: the refusal uses the contract envelope and the agent stops syncing',
-    async () => {
-      const denial = scn.captures(SYNC_PATH).at(-1);
-      expect((denial?.responseJson as { error?: { code: string } } | null)?.error?.code).toBe(
-        'unauthenticated',
-      );
-      expect(scn.kv('agent_state')).toBe('needs_repair');
-      const syncs = scn.captures(SYNC_PATH).length;
-      await scn.agent(['sync-now']);
-      expect(scn.captures(SYNC_PATH)).toHaveLength(syncs);
-    },
-  );
+  // Contract §9.1/§9.2: the 403 carries the error envelope (`device_disabled`); the agent then
+  // enters device_disabled, stops calling /sync and only probes by heartbeat (hourly).
+  it('the refusal uses the contract envelope and the agent stops syncing', async () => {
+    const denial = scn.captures(SYNC_PATH).at(-1);
+    expect((denial?.responseJson as { error?: { code: string } } | null)?.error?.code).toBe(
+      'device_disabled',
+    );
+    expect(scn.kv('agent_state')).toBe('device_disabled');
+    const syncs = scn.captures(SYNC_PATH).length;
+    await scn.agent(['sync-now']);
+    expect(scn.captures(SYNC_PATH)).toHaveLength(syncs);
+  });
 
   it('keeps the device and all of its history', async () => {
     const [device] = await scn.devices();
@@ -79,12 +73,13 @@ describe('07 device disable (AC39, PRD §11, §35)', () => {
     expect(await scn.deviceCount('claude_sessions')).toBe(scn.expected.sessions.length);
     expect(await scn.deviceCount('session_usage')).toBe(scn.expected.usageIds.length);
     expect(await scn.usageTotals()).toEqual(scn.expected.totals);
+    // The token is kept so the agent hears 403 and an Enable resumes it without a re-pair.
     expect(
       await scn.dbCount('personal_access_tokens', 'tokenable_type = ? AND tokenable_id = ?', [
         DEVICE_MORPH,
         deviceId,
       ]),
-    ).toBe(0);
+    ).toBe(1);
     expect(
       await scn.dbCount(
         'audit_logs',

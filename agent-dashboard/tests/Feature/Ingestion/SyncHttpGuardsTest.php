@@ -14,8 +14,22 @@ beforeEach(function () {
     $this->travelTo(Carbon::parse('2026-09-23T12:00:00Z'));
 });
 
-test('unauthenticated requests get 401', function () {
-    postSync(smallSyncBody())->assertUnauthorized();
+test('unauthenticated requests get the 401 unauthenticated envelope', function () {
+    postSync(smallSyncBody())
+        ->assertUnauthorized()
+        ->assertExactJson(ingestionExample('error.unauthenticated.json'));
+});
+
+test('a revoked token gets the 401 unauthenticated envelope and nothing is stored', function () {
+    $device = ingestionDevice(actingAs: false);
+    $token = $device->createToken('agent', ['agent'])->plainTextToken;
+    $device->tokens()->delete();
+
+    test()->withToken($token)->postJson('/api/agent/v1/sync', smallSyncBody())
+        ->assertUnauthorized()
+        ->assertExactJson(ingestionExample('error.unauthenticated.json'));
+
+    expect(SyncBatch::count())->toBe(0);
 });
 
 test('a disabled device gets 403 device_disabled and nothing is stored', function () {
@@ -23,8 +37,7 @@ test('a disabled device gets 403 device_disabled and nothing is stored', functio
 
     postSync(smallSyncBody())
         ->assertForbidden()
-        ->assertJsonPath('success', false)
-        ->assertJsonPath('error.code', 'device_disabled');
+        ->assertExactJson(ingestionExample('error.device_disabled.json'));
 
     expect(DB::table('claude_sessions')->count())->toBe(0)
         ->and(SyncBatch::count())->toBe(0);

@@ -1,5 +1,5 @@
 # H26 — Agent API Error Envelopes, Disable Semantics & Trusted Proxies
-Status: todo · Follow-up (Wave 6 findings F2, F3, F4, FU-2) · parallel with H27–H31 · Branch `handover/H26-agent-api-errors`
+Status: done (bb1a58d) · Follow-up (Wave 6 findings F2, F3, F4, FU-2) · parallel with H27–H31 · Branch `handover/H26-agent-api-errors`
 
 ## Objective
 Make every agent-facing failure use the contract §9.1 envelope, make a dashboard **Disable** yield `403 device_disabled` (not a token-revoked `401`), and let the backend see the real client IP behind a reverse proxy.

@@ -26,7 +26,7 @@ beforeEach(function () {
     $this->admin = User::factory()->admin()->create();
 });
 
-test('DisableDevice disables, revokes tokens, marks health and audits', function () {
+test('DisableDevice disables, keeps tokens so the agent gets 403, marks health and audits', function () {
     $device = Device::factory()->create();
     AgentSyncState::factory()->for($device)->create();
     $device->createToken('agent', ['agent']);
@@ -36,7 +36,7 @@ test('DisableDevice disables, revokes tokens, marks health and audits', function
     $device->refresh();
     expect($device->status)->toBe(DeviceStatus::Disabled)
         ->and($device->disabled_at?->toIso8601ZuluString())->toBe('2026-09-23T10:00:00Z')
-        ->and($device->tokens()->count())->toBe(0)
+        ->and($device->tokens()->count())->toBe(1)
         ->and($device->syncState?->health)->toBe(SyncHealth::Disabled);
 
     $audit = AuditLog::where('action', 'device.disabled')->sole();
@@ -44,16 +44,17 @@ test('DisableDevice disables, revokes tokens, marks health and audits', function
         ->and($audit->subject_id)->toBe($device->id);
 });
 
-test('EnableDevice re-activates without restoring tokens and audits', function () {
+test('EnableDevice re-activates on the existing token and audits', function () {
     $device = Device::factory()->disabled()->create();
     AgentSyncState::factory()->for($device)->create(['health' => SyncHealth::Disabled]);
+    $device->createToken('agent', ['agent']);
 
     app(EnableDevice::class)->handle($device, $this->admin);
 
     $device->refresh();
     expect($device->status)->toBe(DeviceStatus::Active)
         ->and($device->disabled_at)->toBeNull()
-        ->and($device->tokens()->count())->toBe(0)
+        ->and($device->tokens()->count())->toBe(1)
         ->and($device->syncState?->health)->toBe(SyncHealth::Offline)
         ->and(AuditLog::where('action', 'device.enabled')->where('user_id', $this->admin->id)->count())->toBe(1);
 });

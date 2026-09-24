@@ -35,7 +35,7 @@ test('guests are redirected to login for every device action', function (string 
     $this->post(route($route, Device::factory()->create()))->assertRedirect(route('login'));
 })->with('device actions');
 
-test('disable revokes tokens, audits, and keeps the device history listed', function () {
+test('disable keeps the token (the agent gets 403), audits, and keeps the device history listed', function () {
     $admin = User::factory()->admin()->create();
     $device = Device::factory()->create();
     $device->createToken('agent', ['agent']);
@@ -53,7 +53,7 @@ test('disable revokes tokens, audits, and keeps the device history listed', func
     $device->refresh();
     expect($device->status)->toBe(DeviceStatus::Disabled)
         ->and($device->disabled_at)->not->toBeNull()
-        ->and($device->tokens()->count())->toBe(0)
+        ->and($device->tokens()->count())->toBe(1)
         ->and($device->syncState?->health)->toBe(SyncHealth::Disabled)
         ->and(AuditLog::query()->where('action', 'device.disabled')->where('subject_id', $device->id)->where('user_id', $admin->id)->exists())->toBeTrue()
         ->and(ClaudeSession::query()->whereKey($session->id)->exists())->toBeTrue();
@@ -73,7 +73,7 @@ test('disable revokes tokens, audits, and keeps the device history listed', func
         ->assertInertia(fn (Assert $page) => $page->has('devices', 1)->where('devices.0.status', 'disabled'));
 });
 
-test('enable re-activates a disabled device and audits it, but tokens stay revoked until re-pair', function () {
+test('enable re-activates a disabled device on its existing token and audits it', function () {
     $admin = User::factory()->admin()->create();
     $device = Device::factory()->create();
     $device->createToken('agent', ['agent']);
@@ -86,7 +86,7 @@ test('enable re-activates a disabled device and audits it, but tokens stay revok
     $device->refresh();
     expect($device->status)->toBe(DeviceStatus::Active)
         ->and($device->disabled_at)->toBeNull()
-        ->and($device->tokens()->count())->toBe(0)
+        ->and($device->tokens()->count())->toBe(1)
         ->and($device->syncState?->health)->toBe(SyncHealth::Offline)
         ->and(AuditLog::query()->where('action', 'device.enabled')->where('subject_id', $device->id)->exists())->toBeTrue();
 });
