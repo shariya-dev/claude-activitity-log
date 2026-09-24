@@ -135,7 +135,7 @@ Install the `.deb` (`sudo apt install ./6am-agent_<v>_amd64.deb`) or the `.rpm` 
 
 ## 6. Follow-ups
 
-Each follow-up became a Wave 6.5 handover and is merged on `main`: FU-1 → [H27](../handovers/H27-agent-version-v1.md) (agent ships as 1.0.0; `update_required` clears only once `/settings` accepts the version), FU-2 → [H26](../handovers/H26-agent-api-error-envelopes.md) + [H32](../handovers/H32-disable-copy-and-throttle-headers.md), FU-3 → [H28](../handovers/H28-placeholder-routes-test.md), FU-4 and FU-6 → [H30](../handovers/H30-agent-dev-and-hygiene.md), FU-5 → [H31](../handovers/H31-agent-initial-sync-memory.md). The matrix rows above are the original 2026-09-24 observations; the macOS rows affected by FU-1/FU-2 should be re-run in the next operator pass. The original scopes are kept below.
+Each follow-up became a Wave 6.5 handover and is merged on `main`: FU-1 → [H27](../handovers/H27-agent-version-v1.md) (agent ships as 1.0.0; `update_required` clears only once `/settings` accepts the version), FU-2 → [H26](../handovers/H26-agent-api-error-envelopes.md) + [H32](../handovers/H32-disable-copy-and-throttle-headers.md), FU-3 → [H28](../handovers/H28-placeholder-routes-test.md), FU-4 and FU-6 → [H30](../handovers/H30-agent-dev-and-hygiene.md), FU-5 → [H31](../handovers/H31-agent-initial-sync-memory.md) + [H33](../handovers/H33-agent-http-client-memory.md). The matrix rows above are the original 2026-09-24 observations; the macOS rows affected by FU-1/FU-2 should be re-run in the next operator pass. The original scopes are kept below.
 
 | ID | Severity | Summary | Owned files (proposed) | Validation |
 |---|---|---|---|---|

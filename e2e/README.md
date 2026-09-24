@@ -89,13 +89,22 @@ A fault can be limited to one path (`only`) and to a number of requests (`times`
 
 AC15 (no queue infrastructure) is covered only implicitly: the whole suite runs with `QUEUE_CONNECTION=sync` and no worker, and every scenario's data is stored within its HTTP request.
 
-## Findings (product bugs; follow-ups, not fixed here)
+## Findings (product bugs found by H22)
 
-Each known bug has an `it.fails('KNOWN BUG Fn: …')` test that asserts the **contract** behaviour. The test shows as an expected failure today and turns red once the bug is fixed; then change it to `it`.
+All four were fixed in the Wave 6.5 follow-ups, and their tests now run as plain `it`:
+
+| Finding | Fixed by | Now |
+|---|---|---|
+| F1 | [H29](../docs/handovers/H29-account-observed-at.md) | `observed_at` comes from the chunk's data; a retry reuses its `batch_id` and the stored response is replayed (`03-duplicate-sync`). |
+| F2 | [H26](../docs/handovers/H26-agent-api-error-envelopes.md) | A bad or revoked token gets the `unauthenticated` envelope; Disable keeps the token, so the agent gets `403 device_disabled` and enters `device_disabled` (`07-device-disable`). |
+| F3 | H26 | Throttles answer the `rate_limited` envelope with `Retry-After` ([H32](../docs/handovers/H32-disable-copy-and-throttle-headers.md) added the settings headers). |
+| F4 | H26 | `MONITOR_TRUSTED_PROXIES` configures trusted reverse proxies; the harness leaves it empty, so scenario 09 still sees `127.0.0.1`. |
+
+The original descriptions follow for the record.
 
 - **F1: a retried batch is never the same batch while Account is ON (agent, H09/H10).** `core/claude/accountReader.ts` sets `AccountRecord.observed_at` to the scan time, so every re-scan builds a different `accounts[]`. The retry therefore gets a new `batch_id`, which violates contract §8.2 ("a retry of the same chunk MUST reuse the same `batch_id` and byte-for-byte identical records"). The backend then reprocesses the batch instead of replaying it, and the stored-response replay path is unreachable with default settings. No data is duplicated, because the upserts absorb it. Suggested fix: derive `observed_at` from the scanned lines, not the clock (for example, the newest line timestamp in the chunk). Test: `03-duplicate-sync` › Account ON.
 - **F2: an agent 401 is not the contract error envelope (backend, H05/H06).** Every authenticated agent endpoint (`/sync`, `/heartbeat`, `/settings`, `/sync/status`, `/deregister`) answers a missing, bad or revoked token with Laravel's default `401 {"message":"Unauthenticated."}` instead of the §9.1 envelope with `code: unauthenticated`. The default `AuthenticationException` rendering answers first (apparently `auth:sanctum` runs before `device.active` after middleware-priority sorting), so `device.active`'s envelope is never reached. The agent therefore classifies the response as `invalid_response` (retryable), stays `ok` and keeps retrying with backoff; it never enters `needs_repair` as §9.2 requires. After a dashboard **Disable**, the agent keeps calling `/sync`, capped at 15 min. Test: `07-device-disable`.
 - **F3: 429 is not the contract error envelope (backend, H05).** `/register`'s throttle (10/min/IP) answers `429 {"message":"Too Many Attempts."}`, with `Retry-After`, instead of the `rate_limited` envelope, so the agent reports `Pairing failed (invalid_response)`. The authenticated throttles use the same Laravel default. This harness clears the rate limiters between scenarios.
 - **F4: the backend sees every agent request as coming from the proxy (deployment config, H05).** `bootstrap/app.php` configures no trusted proxies, so `X-Forwarded-For` is ignored. `devices.last_public_ip` and the `ip_address` in audit logs hold the proxy's address. Scenario 09 therefore changes the source IP only as the proxy sees it; the backend records `127.0.0.1` for both registrations, which the test asserts. Device identity still never depends on IP, which is AC13's point. Behind a production reverse proxy, the Network category would record the proxy's IP unless `trustProxies` is configured.
 - **Spec note (H22 text vs H05):** H22 expects "the agent gets 403" after Disable. `DisableDevice` (H05) revokes the device's tokens by design, so the backend answers 401. `403 device_disabled` is only reachable while a disabled device still holds a valid token, which the dashboard action never leaves behind.
-- **Housekeeping:** the agent build's runtime cache, `6am-agent/.cache/`, is not git-ignored.
+- **Housekeeping:** the agent build's runtime cache, `6am-agent/.cache/`, is not git-ignored (fixed by H30).
