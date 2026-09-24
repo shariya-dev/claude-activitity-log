@@ -1,5 +1,5 @@
 # H22 — End-to-End Sync Harness (PRD Phase 7, automated part)
-Status: todo · Wave 6 · parallel with H23, H24 · Branch `handover/H22-e2e`
+Status: done (7137eb6) · Wave 6 · parallel with H23, H24 · Branch `handover/H22-e2e`
 
 ## Objective
 An automated suite that runs the **real built agent** against the **real Laravel backend** (MySQL test DB) through a fault-injecting proxy, proving the sync guarantees end to end.
