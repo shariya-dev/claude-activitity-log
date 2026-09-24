@@ -16,7 +16,7 @@ import {
 // `kill -9` while a sync is in flight: the backend has committed the batch, the agent never
 // recorded the ack. After a restart it re-sends from its last committed position with a new
 // batch_id (contract §8.2), and the upserts absorb the overlap: no loss, no duplicates.
-describe('06 agent restart after kill -9 (AC14, AC16, contract §8.2)', () => {
+describe('06 agent restart after kill -9 (AC16, PRD §27, contract §8.2)', () => {
   let scn: Scenario;
   let restarted: Daemon | undefined;
 
