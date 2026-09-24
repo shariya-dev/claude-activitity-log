@@ -1,5 +1,5 @@
 # H20 — Windows Adapter, Per-User Scheduled Task, Installer
-Status: todo · Wave 5 · parallel with H18, H19, H21 · Branch `handover/H20-platform-windows`
+Status: code complete (b7089ca), manual Windows validation pending · Wave 5 · parallel with H18, H19, H21 · Branch `handover/H20-platform-windows`
 
 ## Objective
 Implement `PlatformAdapter` for Windows and a per-user installer (no admin) that installs the bundled runtime + app, registers a logon Scheduled Task with restart-on-failure, and opens pairing.
