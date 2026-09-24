@@ -1,5 +1,5 @@
 # H28 — Retire the Placeholder Assertions in PlaceholderRoutesTest
-Status: todo · Follow-up (Wave 6 finding FU-3) · parallel with H26, H27, H29–H31 · Branch `handover/H28-placeholder-test`
+Status: done (9d3c9bf) · Follow-up (Wave 6 finding FU-3) · parallel with H26, H27, H29–H31 · Branch `handover/H28-placeholder-test`
 
 ## Objective
 `php artisan test` on `main` is fully green. H08's `tests/Feature/Shell/PlaceholderRoutesTest.php` still expects the `Placeholder` page that Wave 4 replaced (23 failures).
