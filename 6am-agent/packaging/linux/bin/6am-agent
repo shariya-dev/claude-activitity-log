@@ -14,9 +14,10 @@ self=$(readlink -f "$0")
 root=$(dirname "$(dirname "$self")")
 node="$root/runtime/node"
 entry="$root/app/agent.cjs"
+# --max-semi-space-size=8: same V8 flag as the systemd unit (H33), keeps a sync under 120 MB RSS.
 
 agent() {
-  "$node" "$entry" "$@"
+  "$node" --max-semi-space-size=8 "$entry" "$@"
 }
 
 refuse_root() {
@@ -52,7 +53,7 @@ case "$command" in
         echo "Pairing with a code is simpler: 6am-agent pair <code>" >&2
       fi
       echo "After pairing in the browser, stop this process (Ctrl-C) and run: 6am-agent install-service"
-      exec "$node" "$entry" pair "$@"
+      exec "$node" --max-semi-space-size=8 "$entry" pair "$@"
     fi
     if [ $# -eq 0 ]; then
       if [ ! -t 0 ]; then
@@ -75,6 +76,6 @@ case "$command" in
     linger_hint
     ;;
   *)
-    exec "$node" "$entry" "$@"
+    exec "$node" --max-semi-space-size=8 "$entry" "$@"
     ;;
 esac

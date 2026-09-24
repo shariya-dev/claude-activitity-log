@@ -8,6 +8,13 @@ export const UNIT_NAME = '6am-agent.service';
 const AUTOSTART_NAME = '6am-agent.desktop';
 const DESCRIPTION = '6AM Technologies Claude Code activity agent';
 
+/**
+ * V8 flags for the long-running agent (H33): 8 MB young-generation semispaces instead of 16 MB
+ * keep the initial sync's peak RSS under the 120 MB target. They must be on the node command line
+ * (v8.setFlagsFromString is too late to resize the heap).
+ */
+export const AGENT_NODE_FLAGS = ['--max-semi-space-size=8'] as const;
+
 interface ExecOpts {
   nodePath: string;
   entryPath: string;
@@ -41,7 +48,7 @@ export function renderUnit(o: ExecOpts): string {
     '',
     '[Service]',
     'Type=simple',
-    `ExecStart=${systemdArg(o.nodePath)} ${systemdArg(o.entryPath)} run`,
+    `ExecStart=${systemdArg(o.nodePath)} ${AGENT_NODE_FLAGS.join(' ')} ${systemdArg(o.entryPath)} run`,
     'Restart=always',
     'RestartSec=30',
     'Nice=10',
@@ -59,7 +66,7 @@ export function renderAutostartEntry(o: ExecOpts): string {
     'Type=Application',
     'Name=6AM Agent',
     `Comment=${DESCRIPTION}`,
-    `Exec=${desktopArg(o.nodePath)} ${desktopArg(o.entryPath)} run`,
+    `Exec=${desktopArg(o.nodePath)} ${AGENT_NODE_FLAGS.join(' ')} ${desktopArg(o.entryPath)} run`,
     'Terminal=false',
     'NoDisplay=true',
     'X-GNOME-Autostart-enabled=true',

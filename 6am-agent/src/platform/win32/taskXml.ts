@@ -14,6 +14,13 @@
  */
 import path from 'node:path';
 
+/**
+ * V8 flags for the long-running agent (H33): 8 MB young-generation semispaces instead of 16 MB
+ * keep the initial sync's peak RSS under the 120 MB target. They must be on the node command line
+ * (v8.setFlagsFromString is too late to resize the heap).
+ */
+export const AGENT_NODE_FLAGS = ['--max-semi-space-size=8'] as const;
+
 export interface TaskXmlOptions {
   /** SID (preferred) or DOMAIN\user of the current user. */
   userId: string;
@@ -66,6 +73,7 @@ export function buildTaskXml(o: TaskXmlOptions): string {
   const args = [
     '--headless',
     quoteWindowsArg(o.nodePath, true),
+    ...AGENT_NODE_FLAGS,
     quoteWindowsArg(o.entryPath, true),
     'run',
   ].join(' ');

@@ -3,7 +3,7 @@
  *
  *   npm run build
  *   npx tsx test/perf/initialSyncRss.ts [--sessions 600] [--usage 27000] [--seed 31]
- *       [--port 8731] [--target-mb 120] [--data <dir>] [--keep] [--node-flags "--trace-gc"]
+ *       [--port 8731] [--target-mb 120] [--data <dir>] [--keep] [--node-flags "<flags>"]
  *       [--snapshot-at-mb <n>] [--timeline] [--prompt] [--dist dist/<target>]
  *
  * Everything lives in a temp dir: HOME, CLAUDE_CONFIG_DIR (the generated data) and the agent's
@@ -13,6 +13,10 @@
  * the agent process records `process.resourceUsage().maxRSS` (the kernel's peak) and sampled
  * `process.memoryUsage()` maxima. Settings are the defaults (Prompt OFF; `--prompt` turns it ON)
  * with `initial_sync: all`. Exits 1 when the sync fails or the peak is over the target.
+ *
+ * `--node-flags` defaults to the V8 flags the installed service passes to node (H33:
+ * `--max-semi-space-size=8`, see the darwin/linux/win32 service definitions), so the default run
+ * measures the shipped configuration. `--node-flags=` measures bare node.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -36,6 +40,8 @@ interface Probe {
 }
 
 const MB = 1024 * 1024;
+/** Mirrors AGENT_NODE_FLAGS in src/platform/{darwin/launchAgent,linux/service,win32/taskXml}.ts. */
+const SERVICE_NODE_FLAGS = '--max-semi-space-size=8';
 const mb = (bytes: number) => (bytes / MB).toFixed(1);
 
 /** Loaded with `--require` into the agent process. Plain CommonJS, no dependencies. */
@@ -110,7 +116,7 @@ async function main(): Promise<number> {
       'target-mb': { type: 'string', default: '120' },
       data: { type: 'string' },
       keep: { type: 'boolean', default: false },
-      'node-flags': { type: 'string', default: '' },
+      'node-flags': { type: 'string', default: SERVICE_NODE_FLAGS },
       'snapshot-at-mb': { type: 'string', default: '0' },
       timeline: { type: 'boolean', default: false },
       prompt: { type: 'boolean', default: false },
@@ -176,14 +182,16 @@ async function main(): Promise<number> {
         [...nodeFlags, '--require', probeFile, agent, 'sync-now'],
         probed('sync'),
       );
-      if (values['node-flags'] !== '') process.stdout.write(sync.stdout);
+      if (values['node-flags'] !== SERVICE_NODE_FLAGS) process.stdout.write(sync.stdout);
       const totals = backend.totals();
       const p = readProbe('sync');
       const base = readProbe('status');
       const peakMb = p.maxRssKb / 1024;
       const target = Number(values['target-mb']);
 
-      console.log(`agent: ${path.relative(process.cwd(), agent)} on ${node}`);
+      console.log(
+        `agent: ${path.relative(process.cwd(), agent)} on ${node} ${nodeFlags.join(' ')}`.trimEnd(),
+      );
       console.log(
         `sync-now: exit ${sync.code}, ${sync.ms} ms: ${sync.stdout.trim()} ${sync.stderr.trim()}`,
       );

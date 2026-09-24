@@ -78,9 +78,10 @@ begin
   Result := FileExists(ExpandConstant('{localappdata}\6amAgent\cred\device_token.bin'));
 end;
 
+{ Same V8 flags as the Scheduled Task (H33): the pairing process runs the initial sync. }
 function AgentArgs(Command: String): String;
 begin
-  Result := '"' + ExpandConstant('{app}\app\agent.cjs') + '" ' + Command;
+  Result := '--max-semi-space-size=8 "' + ExpandConstant('{app}\app\agent.cjs') + '" ' + Command;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

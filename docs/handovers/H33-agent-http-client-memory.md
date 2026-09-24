@@ -1,5 +1,5 @@
 # H33 — Agent HTTP Client and Service Node Flags (Finish FU-5)
-Status: todo · Follow-up (H31 leftovers, Wave 6 finding FU-5) · solo · Branch `handover/H33-agent-http-memory`
+Status: done (6dbc647) · Follow-up (H31 leftovers, Wave 6 finding FU-5) · solo · Branch `handover/H33-agent-http-memory`
 
 ## Objective
 Initial-sync peak RSS < 120 MB with H31's harness (`npm run build && npx tsx test/perf/initialSyncRss.ts`). H31 reached 138–142 MB and measured the rest: global `fetch` (undici + its WASM parser) ≈ 30 MB, V8 16 MB semispaces ≈ 10–15 MB.

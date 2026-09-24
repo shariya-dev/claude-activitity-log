@@ -41,14 +41,16 @@ describe('unit rendering', () => {
     });
 
     expect(unit).toContain(
-      'ExecStart="/home/a b/.local/share/6am-agent/runtime/node" "/home/a b/100%%/$$HOME/\\"q\\"\\\\x.cjs" run\n',
+      'ExecStart="/home/a b/.local/share/6am-agent/runtime/node" --max-semi-space-size=8 "/home/a b/100%%/$$HOME/\\"q\\"\\\\x.cjs" run\n',
     );
   });
 
   it('escapes desktop-entry Exec reserved characters and field codes', () => {
     const entry = renderAutostartEntry({ nodePath: '/a b/node', entryPath: '/x/100%/$y`"z.cjs' });
 
-    expect(entry).toContain('Exec="/a b/node" "/x/100%%/\\\\$y\\\\`\\\\"z.cjs" run\n');
+    expect(entry).toContain(
+      'Exec="/a b/node" --max-semi-space-size=8 "/x/100%%/\\\\$y\\\\`\\\\"z.cjs" run\n',
+    );
   });
 
   it('rejects paths containing newlines', () => {

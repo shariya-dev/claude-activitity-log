@@ -2,7 +2,7 @@
 Type=Application
 Name=6AM Agent
 Comment=6AM Technologies Claude Code activity agent
-Exec="/opt/6am-agent/runtime/node" "/opt/6am-agent/app/agent.cjs" run
+Exec="/opt/6am-agent/runtime/node" --max-semi-space-size=8 "/opt/6am-agent/app/agent.cjs" run
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true

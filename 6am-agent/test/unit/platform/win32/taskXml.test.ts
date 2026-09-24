@@ -75,7 +75,7 @@ describe('buildTaskXml', () => {
     const xml = buildTaskXml(options);
     expect(xml).toContain('<Command>C:\\Windows\\System32\\conhost.exe</Command>');
     expect(xml).toMatch(
-      /<Arguments>--headless "[^"]+\\node\.exe" "[^"]+\\agent\.cjs" run<\/Arguments>/,
+      /<Arguments>--headless "[^"]+\\node\.exe" --max-semi-space-size=8 "[^"]+\\agent\.cjs" run<\/Arguments>/,
     );
   });
 

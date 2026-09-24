@@ -56,7 +56,7 @@ describe('ScheduledTaskService.install', () => {
     expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xfe]);
     const xml = Buffer.from(bytes.subarray(2)).toString('utf16le');
     expect(xml).toContain(`<UserId>${sid}</UserId>`);
-    expect(xml).toContain(`"${opts.nodePath}" "${opts.entryPath}" run`);
+    expect(xml).toContain(`"${opts.nodePath}" --max-semi-space-size=8 "${opts.entryPath}" run`);
     expect(xml).toContain(`<WorkingDirectory>${appData}</WorkingDirectory>`);
 
     expect(files.read(`${appData}\\6amAgent-task.xml`)).toBeUndefined();
