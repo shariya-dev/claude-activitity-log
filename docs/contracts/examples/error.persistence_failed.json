@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "persistence_failed",
+    "message": "The batch could not be stored. Retry later.",
+    "retryable": true
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "device_uninstalled",
+    "message": "This device has been marked as uninstalled.",
+    "retryable": false
+  }
+}

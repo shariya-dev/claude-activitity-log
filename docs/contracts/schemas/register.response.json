@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://monitor.6amtech.com/contracts/sync-api-v1/register.response.json",
+  "title": "POST /register 201 response",
+  "type": "object",
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "pattern": "^dev_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1
+    },
+    "developer": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        }
+      },
+      "required": [
+        "name",
+        "email"
+      ]
+    },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "categories": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "type": "boolean"
+            },
+            "usage": {
+              "type": "boolean"
+            },
+            "project": {
+              "type": "boolean"
+            },
+            "model": {
+              "type": "boolean"
+            },
+            "device": {
+              "type": "boolean"
+            },
+            "account": {
+              "type": "boolean"
+            },
+            "prompt": {
+              "type": "boolean"
+            },
+            "git": {
+              "type": "boolean"
+            },
+            "network": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "session",
+            "usage",
+            "project",
+            "model",
+            "device",
+            "account",
+            "prompt",
+            "git",
+            "network"
+          ]
+        },
+        "initial_sync": {
+          "type": "object",
+          "properties": {
+            "range": {
+              "type": "string",
+              "enum": [
+                "1d",
+                "7d",
+                "30d",
+                "all"
+              ]
+            },
+            "since": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "range",
+            "since"
+          ]
+        },
+        "sync_interval_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 9007199254740991
+        },
+        "heartbeat_interval_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 9007199254740991
+        },
+        "min_agent_version": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+        }
+      },
+      "required": [
+        "version",
+        "categories",
+        "initial_sync",
+        "sync_interval_seconds",
+        "heartbeat_interval_seconds",
+        "min_agent_version"
+      ]
+    }
+  },
+  "required": [
+    "device_id",
+    "token",
+    "developer",
+    "settings"
+  ]
+}

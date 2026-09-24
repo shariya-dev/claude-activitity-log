@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://monitor.6amtech.com/contracts/sync-api-v1/error.json",
+  "title": "Error envelope (all non-2xx JSON responses)",
+  "type": "object",
+  "properties": {
+    "success": {
+      "type": "boolean",
+      "const": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "unauthenticated",
+            "device_disabled",
+            "device_uninstalled",
+            "batch_in_progress",
+            "batch_too_large",
+            "invalid_payload",
+            "agent_outdated",
+            "rate_limited",
+            "persistence_failed",
+            "invalid_pairing_code"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ]
+    }
+  },
+  "required": [
+    "success",
+    "error"
+  ]
+}

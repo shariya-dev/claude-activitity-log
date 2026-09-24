@@ -1,0 +1,12 @@
+{
+  "pairing_code": "K7Q2-M9XD",
+  "device": {
+    "hostname": "dev-laptop-01",
+    "platform": "linux",
+    "platform_version": "6.8.0-45-generic",
+    "architecture": "x64",
+    "machine_fingerprint": "4fb8881ba73108590b554d9cf3a69c4745d8bd5ecfac3dc559b79f137d9b0d68",
+    "agent_version": "1.0.0",
+    "claude_code_version": "2.1.274"
+  }
+}

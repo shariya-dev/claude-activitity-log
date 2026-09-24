@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "batch_in_progress",
+    "message": "This batch is already being processed. Retry the same batch later.",
+    "retryable": true
+  }
+}

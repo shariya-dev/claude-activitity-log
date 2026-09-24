@@ -1,0 +1,79 @@
+{
+  "agent": {
+    "device_id": "dev_01K5Y8Q2ZC3M4N5P6R7S8T9V0W",
+    "platform": "linux",
+    "platform_version": "6.8.0-45-generic",
+    "architecture": "x64",
+    "agent_version": "1.0.0",
+    "claude_code_version": "2.1.274"
+  },
+  "sync": {
+    "batch_id": "2d4f6a8c-0e1b-4d3f-a5c7-9e0b2d4f6a8c",
+    "cursor": "eyJzZXF1ZW5jZSI6NDQsImJhdGNoX2lkIjoiOWM4YjdhNmYtNWU0ZC00YzNiLThhMmYtMWUwZDljOGI3YTZmIiwiYWNrZWRfYXQiOiIyMDI2LTA5LTIzVDExOjEwOjAzWiJ9",
+    "is_initial": false,
+    "settings_version": 5,
+    "sequence": 45
+  },
+  "accounts": [
+    {
+      "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+      "account_uuid": "8b0e4a52-6c1d-4f3e-9a7b-2d5c8e1f0a96",
+      "email": "dana.developer@example.com",
+      "display_name": "Dana Developer",
+      "organization_uuid": "3e7f1c90-2b4a-4d6e-8f15-7a9c0b3d5e21",
+      "organization_name": "Example Org",
+      "observed_at": "2026-09-23T12:01:30.550Z"
+    }
+  ],
+  "projects": [
+    {
+      "project_key": "d653e136367808b28d3985ba3c216c38ae762033745fb07249fb6359159fe95c",
+      "name": "acme-api",
+      "path": "/home/dev/work/acme-api",
+      "git_remote": null,
+      "first_seen_at": "2026-09-23T12:01:30.550Z",
+      "last_seen_at": "2026-09-23T12:14:02.338Z"
+    }
+  ],
+  "sessions": [
+    {
+      "source_session_id": "f6a7b8c9-d0e1-4f2a-8b3c-4d5e6f7a8b9c",
+      "project_key": "d653e136367808b28d3985ba3c216c38ae762033745fb07249fb6359159fe95c",
+      "account_key": "7ded7efff6880e801d8f23856987ad89afeb87ef0ac2c4cc605fa1e68060de03",
+      "first_seen_at": "2026-09-23T12:01:30.550Z",
+      "last_seen_at": "2026-09-23T12:14:02.338Z",
+      "ended_at": null,
+      "claude_code_version": "2.1.274",
+      "entrypoint": "sdk-cli",
+      "git_branch": null,
+      "model": "claude-sonnet-5"
+    }
+  ],
+  "usage": [
+    {
+      "source_message_id": "msg_01G6hJ7kL8mN9pQ0rS1tU2vW",
+      "source_session_id": "f6a7b8c9-d0e1-4f2a-8b3c-4d5e6f7a8b9c",
+      "request_id": "req_01E4fG5hJ6kL7mN8pQ9rS0tU",
+      "model": "claude-sonnet-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-23T12:05:41.002Z",
+      "input_tokens": 3,
+      "output_tokens": 702,
+      "cache_creation_tokens": 15022,
+      "cache_read_tokens": 22871
+    },
+    {
+      "source_message_id": "msg_01H7jK8lM9nP0qR1sT2uV3wX",
+      "source_session_id": "f6a7b8c9-d0e1-4f2a-8b3c-4d5e6f7a8b9c",
+      "request_id": "req_01F5gH6jK7lM8nP9qR0sT1uV",
+      "model": "claude-sonnet-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-23T12:14:02.338Z",
+      "input_tokens": 5,
+      "output_tokens": 1180,
+      "cache_creation_tokens": 940,
+      "cache_read_tokens": 37893
+    }
+  ],
+  "messages": []
+}

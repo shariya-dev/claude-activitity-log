@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "batch_id": "6e5d4c3b-2a19-4f08-b7e6-d5c4b3a29180",
+  "sync": {
+    "accepted": 6,
+    "created": 6,
+    "updated": 0,
+    "rejected": 0
+  },
+  "rejected_records": [],
+  "cursor": "eyJzZXF1ZW5jZSI6MSwiYmF0Y2hfaWQiOiI2ZTVkNGMzYi0yYTE5LTRmMDgtYjdlNi1kNWM0YjNhMjkxODAiLCJhY2tlZF9hdCI6IjIwMjYtMDktMTdUMDk6MTY6MDVaIn0",
+  "settings_version": 1,
+  "server_time": "2026-09-17T09:16:05Z"
+}

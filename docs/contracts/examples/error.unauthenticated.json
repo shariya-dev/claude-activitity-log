@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "unauthenticated",
+    "message": "The device token is missing, invalid or revoked. Pair this device again.",
+    "retryable": false
+  }
+}
