@@ -1,0 +1,46 @@
+# nfpm config for the .deb and .rpm. Run through build-packages.sh, which stages the payload
+# under ./root and the maintainer scripts under ./scripts and sets VERSION and NFPM_ARCH.
+name: 6am-agent
+version: ${VERSION}
+arch: ${NFPM_ARCH}
+platform: linux
+section: utils
+priority: optional
+maintainer: 6AM Technologies
+vendor: 6AM Technologies
+homepage: https://monitor.6amtech.com
+license: Proprietary
+description: |-
+  6AM Technologies Claude Code Activity Monitor agent.
+  Reads Claude Code's local usage data and syncs it to the company dashboard.
+  Bundles its own Node.js runtime and runs as a systemd --user service.
+
+contents:
+  - src: ./root/runtime/node
+    dst: /opt/6am-agent/runtime/node
+    file_info:
+      mode: 0755
+  - src: ./root/app
+    dst: /opt/6am-agent/app
+    type: tree
+  - src: ./root/VERSION
+    dst: /opt/6am-agent/VERSION
+  - src: ./root/bin/6am-agent
+    dst: /opt/6am-agent/bin/6am-agent
+    file_info:
+      mode: 0755
+  - src: /opt/6am-agent/bin/6am-agent
+    dst: /usr/bin/6am-agent
+    type: symlink
+
+scripts:
+  postinstall: ./scripts/postinstall.sh
+  preremove: ./scripts/preremove.sh
+
+overrides:
+  deb:
+    suggests:
+      - libsecret-tools
+  rpm:
+    suggests:
+      - libsecret

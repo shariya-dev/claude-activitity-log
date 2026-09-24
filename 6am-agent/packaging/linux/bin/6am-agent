@@ -1,0 +1,80 @@
+#!/bin/sh
+# 6am-agent launcher: runs the bundled Node runtime with the agent bundle.
+# Installed as /opt/6am-agent/bin/6am-agent (deb/rpm, linked from /usr/bin/6am-agent) or
+# ~/.local/share/6am-agent/bin/6am-agent (tarball, linked from ~/.local/bin/6am-agent).
+#
+#   6am-agent pair [code]     pair with a dashboard code (prompted for when omitted), then
+#                             install and start the systemd --user service
+#   6am-agent pair --browser  pair through the local browser page instead; that process keeps
+#                             running as the agent, so run `6am-agent install-service` afterwards
+#   anything else             passed to the agent unchanged
+set -eu
+
+self=$(readlink -f "$0")
+root=$(dirname "$(dirname "$self")")
+node="$root/runtime/node"
+entry="$root/app/agent.cjs"
+
+agent() {
+  "$node" "$entry" "$@"
+}
+
+refuse_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "6am-agent runs per user: run '6am-agent $1' as your normal user, not root." >&2
+    exit 1
+  fi
+}
+
+linger_hint() {
+  user=$(id -un)
+  if command -v loginctl >/dev/null 2>&1 &&
+    [ "$(loginctl show-user "$user" --property=Linger --value 2>/dev/null || true)" = no ]; then
+    echo "The agent runs while you are logged in. To keep it running after logout, an admin can run:"
+    echo "    sudo loginctl enable-linger $user"
+  fi
+}
+
+command=${1:-run}
+
+case "$command" in
+  --version | -v | --help | -h | help | status | diagnostics) ;;
+  *) refuse_root "$command" ;;
+esac
+
+case "$command" in
+  pair)
+    shift
+    if [ "${1:-}" = --browser ]; then
+      shift
+      if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        echo "Over SSH the pairing page is only reachable through a tunnel (ssh -L <port>:127.0.0.1:<port>)." >&2
+        echo "Pairing with a code is simpler: 6am-agent pair <code>" >&2
+      fi
+      echo "After pairing in the browser, stop this process (Ctrl-C) and run: 6am-agent install-service"
+      exec "$node" "$entry" pair "$@"
+    fi
+    if [ $# -eq 0 ]; then
+      if [ ! -t 0 ]; then
+        echo "usage: 6am-agent pair <code>   (or: 6am-agent pair --browser)" >&2
+        exit 2
+      fi
+      code=
+      while [ -z "$code" ]; do
+        printf 'Pairing code from the dashboard: '
+        IFS= read -r code || exit 1
+      done
+      set -- "$code"
+    fi
+    agent pair "$@"
+    agent install-service
+    linger_hint
+    ;;
+  install-service)
+    agent install-service
+    linger_hint
+    ;;
+  *)
+    exec "$node" "$entry" "$@"
+    ;;
+esac
