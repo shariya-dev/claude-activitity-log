@@ -21,8 +21,8 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Project analytics (PRD §17, §46). Token metrics come from usage_daily_rollups,
- * counts from claude_sessions, paths from project_locations.
+ * Project analytics (PRD §17, §46). Token metrics come from usage_daily_rollups, session counts from
+ * claude_sessions, paths and the index's developer/device counts from project_locations.
  */
 class ProjectController extends Controller
 {
@@ -110,8 +110,9 @@ class ProjectController extends Controller
 
     /**
      * One row per project: range token sums (rollups) and range session count, both scoped by the developer filter,
-     * plus project-wide distinct developer/device counts. Each figure is a grouped subquery, so the page runs a fixed
-     * number of queries regardless of page size.
+     * plus project-wide distinct developer/device counts from project_locations (bounded by project × device × path,
+     * unlike claude_sessions). Each figure is a grouped subquery, so the page runs a fixed number of queries
+     * regardless of page size.
      */
     private function projectRows(UsageFilters $filters, string $search): Builder
     {
@@ -127,10 +128,10 @@ class ProjectController extends Controller
             ->groupBy('s.project_id')
             ->selectRaw('s.project_id, COUNT(*) as sessions_count');
 
-        $people = DB::table('claude_sessions as s')
-            ->whereNotNull('s.project_id')
-            ->groupBy('s.project_id')
-            ->selectRaw('s.project_id, COUNT(DISTINCT s.developer_id) as developers_count, COUNT(DISTINCT s.device_id) as devices_count');
+        $people = DB::table('project_locations as pl')
+            ->join('devices as dv', 'dv.id', '=', 'pl.device_id')
+            ->groupBy('pl.project_id')
+            ->selectRaw('pl.project_id, COUNT(DISTINCT dv.developer_id) as developers_count, COUNT(DISTINCT pl.device_id) as devices_count');
 
         $query = DB::table('projects as p')
             ->leftJoinSub($tokens, 't', 't.project_id', '=', 'p.id')

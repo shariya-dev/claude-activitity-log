@@ -90,6 +90,7 @@ beforeEach(function () {
     projectsLocation($this->api, $this->bobPc, 'C:\\code\\payments-api');
     projectsLocation($this->scratch, $this->aliceMac, '/Users/alice/tmp/scratch-pad');
     projectsLocation($this->other, $this->bobLaptop, '/home/bob/other-cms');
+    projectsLocation($this->api, $this->bobLaptop, '/home/bob/payments-api');
 
     // This week (2026-09-21 … 2026-09-27, Asia/Dhaka).
     projectsSession($this->aliceMac, $this->api, '2026-09-21 06:00:00');
@@ -266,12 +267,12 @@ test('show renders project detail with paths, developers, devices and H07 totals
             ->where('totals', $analytics->totals($filters))
             ->where('trend', $analytics->trend($filters))
             ->where('sessionsCount', 3)
-            ->has('paths', 2)
+            ->has('paths', 3)
             ->where('paths', function ($paths) {
                 $byPath = collect($paths)->keyBy('path');
                 $mac = $byPath->get('/Users/alice/code/payments-api');
 
-                expect($byPath->keys()->sort()->values()->all())->toBe(['/Users/alice/code/payments-api', 'C:\\code\\payments-api'])
+                expect($byPath->keys()->sort()->values()->all())->toBe(['/Users/alice/code/payments-api', '/home/bob/payments-api', 'C:\\code\\payments-api'])
                     ->and($mac['device'])->toBe('alice-mbp')
                     ->and($mac['device_uid'])->toBe($this->aliceMac->device_uid)
                     ->and($mac['developer'])->toBe('Alice')
@@ -334,6 +335,23 @@ test('show respects the date range', function () {
             ->where('developers.0.id', $this->bob->id)
             ->where('developers.0.total_token_activity', 5 * 460)
             ->where('developers.1.total_token_activity', 0));
+});
+
+test('range session counts use org-timezone day boundaries', function () {
+    // 2026-09-21 00:30 in Asia/Dhaka: inside this week.
+    projectsSession($this->aliceMac, $this->scratch, '2026-09-20 18:30:00');
+    // 2026-09-20 23:59 in Asia/Dhaka: the Sunday before this week.
+    projectsSession($this->aliceMac, $this->scratch, '2026-09-20 17:59:00');
+    $user = User::factory()->viewer()->create();
+
+    $this->actingAs($user)->get(route('projects.show', $this->scratch))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('sessionsCount', 2)
+            ->where('developers.0.sessions_count', 2)
+            ->where('devices.0.sessions_count', 2));
+
+    $this->actingAs($user)->get(route('projects.index', ['search' => 'Scratch']))
+        ->assertInertia(fn (Assert $page) => $page->where('projects.data.0.sessions_count', 2));
 });
 
 test('show returns 404 for an unknown project', function () {

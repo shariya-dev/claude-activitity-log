@@ -181,7 +181,9 @@ onBeforeUnmount(() => {
         <div class="flex flex-col gap-1">
             <h1 class="text-xl font-semibold tracking-tight">Projects</h1>
             <p class="text-sm text-muted-foreground">
-                Claude Code activity grouped by project.
+                Claude Code activity grouped by project. Sessions and token
+                columns cover the selected period; Developers, Devices and Last
+                activity are all-time.
             </p>
         </div>
 

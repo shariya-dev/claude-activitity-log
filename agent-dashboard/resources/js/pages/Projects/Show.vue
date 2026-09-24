@@ -226,7 +226,10 @@ const numericCellClass = 'px-4 py-2.5 text-right tabular-nums';
             <h2 id="project-developers-heading" class="text-base font-semibold">
                 Developers
             </h2>
-            <EmptyState v-if="developers.length === 0" />
+            <EmptyState
+                v-if="developers.length === 0"
+                title="No developers recorded"
+            />
             <div v-else class="overflow-x-auto rounded-lg border">
                 <table class="w-full min-w-[48rem] text-sm">
                     <thead class="bg-muted/50 text-muted-foreground">
@@ -301,7 +304,10 @@ const numericCellClass = 'px-4 py-2.5 text-right tabular-nums';
             <h2 id="project-devices-heading" class="text-base font-semibold">
                 Devices
             </h2>
-            <EmptyState v-if="devices.length === 0" />
+            <EmptyState
+                v-if="devices.length === 0"
+                title="No devices recorded"
+            />
             <div v-else class="overflow-x-auto rounded-lg border">
                 <table class="w-full min-w-[56rem] text-sm">
                     <thead class="bg-muted/50 text-muted-foreground">
@@ -377,7 +383,10 @@ const numericCellClass = 'px-4 py-2.5 text-right tabular-nums';
             <h2 id="project-sessions-heading" class="text-base font-semibold">
                 Recent sessions
             </h2>
-            <EmptyState v-if="recentSessions.length === 0" />
+            <EmptyState
+                v-if="recentSessions.length === 0"
+                title="No sessions in this period"
+            />
             <div v-else class="overflow-x-auto rounded-lg border">
                 <table class="w-full min-w-[44rem] text-sm">
                     <thead class="bg-muted/50 text-muted-foreground">
