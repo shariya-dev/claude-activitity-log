@@ -1,5 +1,5 @@
 # H29 — Deterministic Account `observed_at` (Retry Reuses the Batch)
-Status: todo · Follow-up (Wave 6 finding F1) · parallel with H26–H28, H30, H31 · Branch `handover/H29-account-observed-at`
+Status: done (5406da1) · Follow-up (Wave 6 finding F1) · parallel with H26–H28, H30, H31 · Branch `handover/H29-account-observed-at`
 
 ## Objective
 With Account tracking ON, a retried chunk reuses the same `batch_id` with byte-identical records (contract §8.2). Today `accountReader` stamps `observed_at` with the scan time.

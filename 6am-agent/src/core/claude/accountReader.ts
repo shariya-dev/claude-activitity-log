@@ -2,6 +2,10 @@
  * Reads the account from the global config's `oauthAccount` (claude-data-contract §9). Only
  * the five mapped fields are kept; every other key (billing, tiers, roles, …) is dropped
  * right after the parse. Missing file, invalid JSON or no usable account → null.
+ *
+ * `observedAt` comes from the caller and must be derived from the scanned data, never the clock:
+ * the scanner stamps each chunk with its newest session activity so that a retry rebuilds
+ * byte-identical records (sync-api-v1 §8.2).
  */
 import type { AccountRecord } from '../contract/index.js';
 import { accountKey } from '../detect/keys.js';
