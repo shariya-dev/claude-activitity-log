@@ -1,5 +1,5 @@
 # H18 — Agent App: Composition Root, CLI, Pairing UX, Build Pipeline
-Status: todo · Wave 5 · parallel with H19–H21 (and may overlap Wave 4) · Branch `handover/H18-agent-app`
+Status: done (9a13a8e) · Wave 5 · parallel with H19–H21 (and may overlap Wave 4) · Branch `handover/H18-agent-app`
 
 ## Objective
 Wire core (H09 reader + H10 engine) with the selected platform adapter into a runnable agent: CLI commands, first-run pairing (a loopback page plus `pair <code>`), startup discovery flow, diagnostics, and a build that produces the per-target payload layout the installers package.
