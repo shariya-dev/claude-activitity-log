@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Laravel)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-dashboard
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: claude_monitor_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: claude_monitor_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_mysql, intl, bcmath
+          coverage: none
+          tools: composer:v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: agent-dashboard/package-lock.json
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # The Vite build runs the Wayfinder generator (php artisan), and the Inertia feature
+      # tests need its manifest, so it runs before the test suite.
+      - name: Build assets
+        run: npm run build
+
+      - name: Lint (JS)
+        run: npm run lint
+
+      - name: Type check (Vue)
+        run: npm run types
+
+      - name: Pint
+        run: vendor/bin/pint --test
+
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+
+      - name: Tests
+        run: php artisan test
+
+  agent:
+    name: Agent (ubuntu)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 6am-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 6am-agent/.nvmrc
+          cache: npm
+          cache-dependency-path: 6am-agent/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Probe tests
+        working-directory: .
+        run: node --test tools/claude-data-probe/probe.test.mjs
+
+  agent-os:
+    name: Agent unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: 6am-agent
+    steps:
+      # Fixtures and checkpoint tests depend on exact byte offsets, so Windows must not
+      # rewrite line endings on checkout.
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        working-directory: .
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 6am-agent/.nvmrc
+          cache: npm
+          cache-dependency-path: 6am-agent/package-lock.json
+
+      - run: npm ci
+      - run: npm test

@@ -1,0 +1,334 @@
+name: Agent installers
+
+# Builds the per-OS installers from the H18 payloads and uploads them to a draft GitHub
+# release. Tag builds (agent-v<version>) use that tag's release; manual runs use the draft
+# release "agent-v<version>" for the version in 6am-agent/package.json. A draft release does
+# not create the tag until it is published.
+#
+# Repository settings used (all optional; each missing value is skipped, never fatal):
+#   vars.AGENT_API_BASE_URL             https URL baked into a stable build; without it the
+#                                       build uses build-config.example.json (dev channel)
+#   secrets.MACOS_INSTALLER_CERT_P12    base64 "Developer ID Installer" .p12
+#   secrets.MACOS_INSTALLER_CERT_PASSWORD, secrets.MACOS_SIGN_IDENTITY
+#   secrets.APPLE_ID, secrets.APPLE_TEAM_ID, secrets.APPLE_APP_PASSWORD   (notarization)
+#   secrets.WINDOWS_CERT_PFX            base64 Authenticode .pfx
+#   secrets.WINDOWS_CERT_PASSWORD
+
+on:
+  push:
+    tags: ['agent-v*']
+  workflow_dispatch:
+
+# One build at a time: runs for the same version share one draft release.
+concurrency:
+  group: agent-build
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NFPM_VERSION: 2.41.1
+
+jobs:
+  prepare:
+    name: Version and draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(node -p "require('./6am-agent/package.json').version")
+          release="agent-v$version"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$release" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match 6am-agent/package.json version $version"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "release=$release" >>"$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ steps.version.outputs.release }}
+        # Never touch a published release, and never mix assets from different commits in
+        # one draft: a draft for another commit must be deleted (or the version bumped) first.
+        run: |
+          if ! state=$(gh release view "$RELEASE" --json isDraft,targetCommitish \
+            -q '"\(.isDraft) \(.targetCommitish)"' 2>/dev/null); then
+            gh release create "$RELEASE" --draft --target "$GITHUB_SHA" \
+              --title "6AM Agent ${RELEASE#agent-v}" --notes "Built by run $GITHUB_RUN_ID."
+          elif [ "${state%% *}" != true ]; then
+            echo "::error::release $RELEASE is already published; bump 6am-agent/package.json"
+            exit 1
+          elif [ "${state#* }" != "$GITHUB_SHA" ]; then
+            echo "::error::draft $RELEASE was built from ${state#* }; delete it to rebuild from $GITHUB_SHA"
+            exit 1
+          fi
+
+  macos:
+    name: macOS pkg (${{ matrix.target }})
+    needs: prepare
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # The runtime is downloaded per target and pkgbuild does not execute it, so both
+        # architectures are packaged on the arm64 runner.
+        target: [darwin-arm64, darwin-x64]
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      HAS_SIGNING: ${{ secrets.MACOS_INSTALLER_CERT_P12 != '' && secrets.MACOS_SIGN_IDENTITY != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+    defaults:
+      run:
+        working-directory: 6am-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 6am-agent/.nvmrc
+          cache: npm
+          cache-dependency-path: 6am-agent/package-lock.json
+
+      - run: npm ci
+
+      - name: Build config
+        env:
+          API_BASE_URL: ${{ vars.AGENT_API_BASE_URL }}
+        run: |
+          if [ -n "$API_BASE_URL" ]; then
+            node -e 'console.log(JSON.stringify({ apiBaseUrl: process.env.API_BASE_URL, channel: "stable" }))' >"$RUNNER_TEMP/build-config.json"
+          else
+            echo "::warning::vars.AGENT_API_BASE_URL is not set; building a dev-channel installer"
+            cp build-config.example.json "$RUNNER_TEMP/build-config.json"
+          fi
+
+      - name: Build payload
+        run: npm run build -- --target ${{ matrix.target }} --config "$RUNNER_TEMP/build-config.json"
+
+      - name: Import installer certificate
+        if: env.HAS_SIGNING == 'true'
+        env:
+          CERT_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERT_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$CERT_P12" | base64 --decode >"$RUNNER_TEMP/installer.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/installer.p12" -k "$keychain" -f pkcs12 -P "$CERT_PASSWORD" \
+            -T /usr/bin/productbuild -T /usr/bin/pkgbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/installer.p12"
+
+      - name: Store notary credentials
+        if: env.HAS_SIGNING == 'true' && env.HAS_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials 6am-notary \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+
+      - name: Build pkg
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          args=()
+          if [ "$HAS_SIGNING" = true ]; then
+            args+=(--sign "$SIGN_IDENTITY")
+            [ "$HAS_NOTARY" != true ] || args+=(--notarize-profile 6am-notary)
+          else
+            echo "Signing skipped (no macOS signing secrets)."
+          fi
+          packaging/macos/build-pkg.sh "dist/${{ matrix.target }}" "$VERSION" --out dist/out ${args[@]+"${args[@]}"}
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ needs.prepare.outputs.release }}
+        run: gh release upload "$RELEASE" dist/out/*.pkg --clobber
+
+      - name: Remove signing keychain
+        if: always() && env.HAS_SIGNING == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  windows:
+    name: Windows installer (${{ matrix.arch }})
+    needs: prepare
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Inno Setup compiles either architecture on the x64 runner.
+        arch: [x64, arm64]
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      HAS_SIGNING: ${{ secrets.WINDOWS_CERT_PFX != '' && secrets.WINDOWS_CERT_PASSWORD != '' }}
+    defaults:
+      run:
+        working-directory: 6am-agent
+        shell: pwsh
+    steps:
+      - name: Keep LF line endings
+        working-directory: .
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 6am-agent/.nvmrc
+          cache: npm
+          cache-dependency-path: 6am-agent/package-lock.json
+
+      - run: npm ci
+
+      - name: Install Inno Setup
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed ($LASTEXITCODE)" }
+          }
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "ISCC.exe not found at $iscc" }
+
+      - name: Build config
+        env:
+          API_BASE_URL: ${{ vars.AGENT_API_BASE_URL }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'build-config.json'
+          if ($env:API_BASE_URL) {
+            @{ apiBaseUrl = $env:API_BASE_URL; channel = 'stable' } | ConvertTo-Json -Compress | Set-Content -LiteralPath $out -Encoding utf8NoBOM
+          } else {
+            Write-Output '::warning::vars.AGENT_API_BASE_URL is not set; building a dev-channel installer'
+            Copy-Item build-config.example.json $out
+          }
+
+      - name: Build payload
+        run: npm run build -- --target win-${{ matrix.arch }} --config "$env:RUNNER_TEMP\build-config.json"
+
+      # Windows PowerShell: Import-PfxCertificate (PKI module) is native there, not proxied.
+      - name: Import code-signing certificate
+        id: cert
+        if: env.HAS_SIGNING == 'true'
+        shell: powershell
+        env:
+          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
+          $password = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item -LiteralPath $pfx
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe not found in the Windows SDK' }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding ascii -Value "thumbprint=$($cert.Thumbprint)"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding ascii -Value "signtool=$($signtool.FullName)"
+
+      - name: Build installer
+        env:
+          THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
+          SIGNTOOL: ${{ steps.cert.outputs.signtool }}
+        run: |
+          $params = @{
+            PayloadDir = "dist\win-${{ matrix.arch }}"
+            Version    = $env:VERSION
+            Arch       = '${{ matrix.arch }}'
+            OutputDir  = 'dist\out'
+          }
+          if ($env:HAS_SIGNING -eq 'true') {
+            $params.SignToolPath = $env:SIGNTOOL
+            $params.CertificateThumbprint = $env:THUMBPRINT
+          }
+          & packaging\windows\build-installer.ps1 @params
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ needs.prepare.outputs.release }}
+        run: gh release upload $env:RELEASE (Get-ChildItem dist\out\*.exe).FullName --clobber
+
+  linux:
+    name: Linux packages (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # nfpm and tar package either architecture on the x64 runner.
+        arch: [x64, arm64]
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        working-directory: 6am-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 6am-agent/.nvmrc
+          cache: npm
+          cache-dependency-path: 6am-agent/package-lock.json
+
+      - run: npm ci
+
+      - name: Install nfpm
+        working-directory: ${{ runner.temp }}
+        run: |
+          base="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}"
+          archive="nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSLO "$base/$archive"
+          curl -fsSLO "$base/checksums.txt"
+          grep " $archive\$" checksums.txt | sha256sum --check --strict
+          mkdir -p nfpm-bin
+          tar -xzf "$archive" -C nfpm-bin nfpm
+          echo "$RUNNER_TEMP/nfpm-bin" >>"$GITHUB_PATH"
+
+      - name: Build config
+        env:
+          API_BASE_URL: ${{ vars.AGENT_API_BASE_URL }}
+        run: |
+          if [ -n "$API_BASE_URL" ]; then
+            node -e 'console.log(JSON.stringify({ apiBaseUrl: process.env.API_BASE_URL, channel: "stable" }))' >"$RUNNER_TEMP/build-config.json"
+          else
+            echo "::warning::vars.AGENT_API_BASE_URL is not set; building dev-channel packages"
+            cp build-config.example.json "$RUNNER_TEMP/build-config.json"
+          fi
+
+      - name: Build payload
+        run: npm run build -- --target linux-${{ matrix.arch }} --config "$RUNNER_TEMP/build-config.json"
+
+      # deb/rpm signing is not configured in nfpm.yaml; packages are published unsigned.
+      - name: Build deb, rpm and tarball
+        env:
+          OUT_DIR: dist/out
+        run: packaging/linux/build-packages.sh "dist/linux-${{ matrix.arch }}" "$VERSION" "${{ matrix.arch }}"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ needs.prepare.outputs.release }}
+        run: gh release upload "$RELEASE" dist/out/*.deb dist/out/*.rpm dist/out/*.tar.gz --clobber
