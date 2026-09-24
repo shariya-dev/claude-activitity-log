@@ -1,5 +1,5 @@
 # H12 — Developers: Management, Detail, Pairing Codes (PRD §10, §44, §45)
-Status: todo · Wave 4 · parallel with H11, H13–H17 · Branch `handover/H12-dashboard-developers`
+Status: done (a47b43a) · Wave 4 · parallel with H11, H13–H17 · Branch `handover/H12-dashboard-developers`
 
 ## Objective
 Developer list, create/edit/deactivate, developer detail dashboard (accounts, devices, projects, sessions, tokens, trends, last activity/sync), and "Generate pairing code" (shown once).
