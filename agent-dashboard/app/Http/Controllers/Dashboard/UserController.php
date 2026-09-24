@@ -118,7 +118,7 @@ class UserController extends Controller
             if ($before['is_active'] !== $user->is_active) {
                 AuditLog::record($user->is_active ? 'user.reactivated' : 'user.deactivated', $user, [], $by);
             }
-        });
+        }, attempts: 3);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User updated.')]);
 
@@ -126,7 +126,8 @@ class UserController extends Controller
     }
 
     /**
-     * Active admins other than $user, locked so two concurrent demotions can't both pass the check.
+     * Active admins other than $user, locked so two concurrent demotions can't both pass the check
+     * (a deadlock between them is retried by the transaction, and the retry then sees the other demotion).
      */
     private function otherActiveAdmins(User $user): int
     {

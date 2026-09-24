@@ -10,7 +10,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 /**
- * One change per request: role, prompt permission, or active flag.
+ * Changes a user's role, prompt permission and/or active flag (the dashboard sends one at a time).
  */
 class UpdateUserRequest extends FormRequest
 {

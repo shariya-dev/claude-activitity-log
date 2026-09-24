@@ -15,10 +15,14 @@ use Illuminate\Support\Facades\DB;
  * Retention (PRD §56): removes raw prompt messages and raw per-message usage older than `retention_days`,
  * and sync batches older than 90 days regardless of the policy (scheduled daily).
  *
- * Usage rows are removed only for device-days that already have `usage_daily_rollups` rows, so aggregate
- * history stays intact. Rollups, sessions, devices and developers are never touched.
+ * Raw `session_usage` is pruned only with --include-usage, and then only for device-days that already have
+ * `usage_daily_rollups` rows. It is off by default (and in the schedule) because the ingestion rebuilds
+ * (RefreshDailyRollups, RecomputeSessionTotals, monitor:recalculate-tokens) recompute totals from raw usage and
+ * would shrink history for pruned days. Rollups, sessions, devices and developers are never touched.
  */
-#[Signature('monitor:prune {--dry-run : Count the rows that would be deleted without deleting them}')]
+#[Signature('monitor:prune
+    {--dry-run : Count the rows that would be deleted without deleting them}
+    {--include-usage : Also prune rolled-up raw session_usage (only once ingestion rebuilds are retention-aware)}')]
 #[Description('Apply the retention policy to raw monitoring data (messages, usage, old sync batches)')]
 class PruneMonitoringData extends Command
 {
@@ -35,7 +39,7 @@ class PruneMonitoringData extends Command
         $queries = [
             'session_messages' => $retentionDays === null ? null : fn (): Builder => DB::table('session_messages')
                 ->where('recorded_at', '<', $now->subDays($retentionDays)),
-            'session_usage' => $retentionDays === null ? null : fn (): Builder => DB::table('session_usage')
+            'session_usage' => $retentionDays === null || ! $this->option('include-usage') ? null : fn (): Builder => DB::table('session_usage')
                 ->where('recorded_on', '<', OrgClock::dateFor($now->subDays($retentionDays)))
                 ->whereExists(fn (Builder $rollups) => $rollups
                     ->selectRaw('1')
@@ -62,7 +66,7 @@ class PruneMonitoringData extends Command
             $this->line("  {$table} {$count}");
         }
 
-        if (! $dryRun) {
+        if (! $dryRun && array_sum($counts) > 0) {
             AuditLog::record('retention.pruned', null, ['retention_days' => $retentionDays, ...$counts]);
         }
 

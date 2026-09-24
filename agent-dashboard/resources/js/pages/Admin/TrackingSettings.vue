@@ -367,8 +367,9 @@ function submit(): void {
                 <CardHeader>
                     <CardTitle>Data retention</CardTitle>
                     <CardDescription>
-                        Raw messages and per-message usage older than this are
-                        pruned daily. Daily totals and sessions are always kept.
+                        Raw prompt messages older than this are permanently
+                        deleted every night. Daily totals, sessions and devices
+                        are always kept.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -393,7 +394,8 @@ function submit(): void {
                             class="text-xs text-muted-foreground"
                         >
                             Leave blank to keep history forever. Minimum
-                            {{ limits.retention_min }} days.
+                            {{ limits.retention_min }} days. Deleted data cannot
+                            be recovered.
                         </p>
                         <InputError :message="form.errors.retention_days" />
                     </div>

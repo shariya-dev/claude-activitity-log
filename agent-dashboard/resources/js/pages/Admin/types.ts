@@ -52,7 +52,7 @@ export type AdminUserRow = {
     role: UserRole;
     can_view_prompts: boolean;
     is_active: boolean;
-    created_at: string;
+    created_at: string | null;
     is_self: boolean;
 };
 
@@ -75,7 +75,7 @@ export type AuditLogSubject = {
 
 export type AuditLogRow = {
     id: number;
-    created_at: string;
+    created_at: string | null;
     actor: AuditLogActor | null;
     action: string;
     subject: AuditLogSubject | null;

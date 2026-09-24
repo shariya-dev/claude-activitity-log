@@ -75,7 +75,7 @@ test('dry-run reports the counts and deletes nothing', function () {
     TrackingSetting::current()->forceFill(['retention_days' => 30])->save();
     $usage = SessionUsage::query()->count();
 
-    $this->artisan('monitor:prune', ['--dry-run' => true])
+    $this->artisan('monitor:prune', ['--dry-run' => true, '--include-usage' => true])
         ->expectsOutputToContain('Dry run')
         ->expectsOutputToContain('session_messages 3')
         ->expectsOutputToContain('session_usage 2')
@@ -94,7 +94,7 @@ test('a real prune deletes the same rows the dry-run counted and keeps history (
     $entitiesBefore = keptEntityCounts();
     $sessionTotals = $this->session->fresh()->only(['actual_consumed_tokens', 'total_token_activity']);
 
-    $this->artisan('monitor:prune')->assertSuccessful();
+    $this->artisan('monitor:prune', ['--include-usage' => true])->assertSuccessful();
 
     expect(SessionMessage::query()->count())->toBe(2)
         ->and(SessionUsage::query()->pluck('id')->sort()->values()->all())
@@ -119,9 +119,32 @@ test('usage is kept when the rollup belongs to another device on the same day', 
     $at = now()->subDays(50);
     UsageDailyRollup::factory()->create(['date' => OrgClock::dateFor($at)]);
 
-    $this->artisan('monitor:prune')->assertSuccessful();
+    $this->artisan('monitor:prune', ['--include-usage' => true])->assertSuccessful();
 
     expect(SessionUsage::query()->whereKey($this->oldNotRolledUp->id)->exists())->toBeTrue();
+});
+
+test('by default raw usage is kept, so recalculating tokens afterwards keeps rollup history', function () {
+    TrackingSetting::current()->forceFill(['retention_days' => 30])->save();
+    $this->artisan('monitor:recalculate-tokens')->assertSuccessful();
+    $rollupsBefore = rollupTotals();
+
+    $this->artisan('monitor:prune')
+        ->expectsOutputToContain('session_usage 0')
+        ->assertSuccessful();
+    $this->artisan('monitor:recalculate-tokens')->assertSuccessful();
+
+    expect(SessionUsage::query()->count())->toBe(4)
+        ->and(SessionMessage::query()->count())->toBe(2)
+        ->and(rollupTotals())->toBe($rollupsBefore);
+});
+
+test('a prune that deletes nothing writes no audit', function () {
+    SyncBatch::query()->delete();
+
+    $this->artisan('monitor:prune')->assertSuccessful();
+
+    expect(AuditLog::query()->count())->toBe(0);
 });
 
 test('without a retention policy only old sync batches are pruned', function () {
