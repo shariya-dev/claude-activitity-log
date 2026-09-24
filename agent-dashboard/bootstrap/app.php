@@ -30,7 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->middleware('api')
                 ->group(glob(base_path('routes/agent/*.php')) ?: []);
 
-            Route::middleware(['web', 'auth', 'verified', 'active'])
+            Route::middleware(['web', 'auth', 'active'])
                 ->group(glob(base_path('routes/dashboard/*.php')) ?: []);
         },
     )

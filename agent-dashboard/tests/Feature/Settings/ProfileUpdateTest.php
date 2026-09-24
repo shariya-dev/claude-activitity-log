@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 
 uses(RefreshDatabase::class);
 
@@ -12,7 +13,10 @@ test('profile page is displayed', function () {
         ->actingAs($user)
         ->get(route('profile.edit'));
 
-    $response->assertOk();
+    $response->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('settings/Profile')
+            ->missing('mustVerifyEmail'));
 });
 
 test('profile information can be updated', function () {
