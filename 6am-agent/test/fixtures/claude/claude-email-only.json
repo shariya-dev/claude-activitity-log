@@ -1,0 +1,25 @@
+{
+  "numStartups": 3,
+  "installMethod": "native",
+  "userID": "00000000000000000000000000000000000000000000000000000000abcdef12",
+  "projects": {
+    "/home/dev/projects/demo-app": {
+      "allowedTools": []
+    }
+  },
+  "oauthAccount": {
+    "emailAddress": "Dev@Example.com",
+    "organizationUuid": "0b7c1a2e-4f3d-4a8b-9c1d-0000000000b1",
+    "hasExtraUsageEnabled": false,
+    "billingType": "stripe_subscription",
+    "accountCreatedAt": "2026-09-20T00:00:00.000Z",
+    "subscriptionCreatedAt": "2026-09-20T00:00:00.000Z",
+    "seatTier": "standard",
+    "displayName": "Dev Example",
+    "fullName": "Dev Example",
+    "organizationRole": "user",
+    "workspaceRole": null,
+    "organizationName": "Example Org",
+    "organizationType": "claude_team"
+  }
+}

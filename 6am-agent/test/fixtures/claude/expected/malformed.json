@@ -1,0 +1,65 @@
+{
+  "fixture": "malformed.jsonl",
+  "linesTotal": 5,
+  "linesSkipped": 2,
+  "partialTrailingBytes": 200,
+  "consumedBytes": 1896,
+  "projects": [
+    {
+      "path": "/home/dev/projects/demo-app",
+      "first_seen_at": "2026-09-21T12:00:00.000Z",
+      "last_seen_at": "2026-09-21T12:01:00.000Z"
+    }
+  ],
+  "sessions": [
+    {
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000004",
+      "first_seen_at": "2026-09-21T12:00:00.000Z",
+      "last_seen_at": "2026-09-21T12:01:00.000Z",
+      "ended_at": null,
+      "claude_code_version": "2.1.274",
+      "entrypoint": "cli",
+      "git_branch": "main",
+      "model": "claude-sonnet-5",
+      "project_path": "/home/dev/projects/demo-app"
+    }
+  ],
+  "usage": [
+    {
+      "source_message_id": "msg_01FIXTUREmalformed00000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000004",
+      "request_id": "req_01FIXTUREmalformed00000001",
+      "model": "claude-sonnet-5",
+      "is_sidechain": false,
+      "recorded_at": "2026-09-21T12:00:02.000Z",
+      "input_tokens": 7,
+      "output_tokens": 77,
+      "cache_creation_tokens": 700,
+      "cache_read_tokens": 7000
+    }
+  ],
+  "messages": [
+    {
+      "source_message_id": "a5000000-0000-4000-8000-000000000001",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000004",
+      "role": "user",
+      "content": "Lorem ipsum before garbage.",
+      "recorded_at": "2026-09-21T12:00:00.000Z"
+    },
+    {
+      "source_message_id": "a5000000-0000-4000-8000-000000000003",
+      "source_session_id": "0b7c1a2e-4f3d-4a8b-9c1d-000000000004",
+      "role": "user",
+      "content": "Lorem ipsum after garbage.",
+      "recorded_at": "2026-09-21T12:01:00.000Z"
+    }
+  ],
+  "tokenSums": {
+    "input": 7,
+    "output": 77,
+    "cache_creation": 700,
+    "cache_read": 7000,
+    "actual": 784,
+    "total": 7784
+  }
+}

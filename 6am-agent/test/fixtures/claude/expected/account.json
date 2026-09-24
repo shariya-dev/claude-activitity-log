@@ -1,0 +1,8 @@
+{
+  "account_uuid": "0b7c1a2e-4f3d-4a8b-9c1d-0000000000a1",
+  "email": "dev@example.com",
+  "display_name": "Dev Example",
+  "organization_uuid": "0b7c1a2e-4f3d-4a8b-9c1d-0000000000b1",
+  "organization_name": "Example Org",
+  "account_key": "e07c7614a4539888af7664774a0d69b4ec1afc13cdf977d31040c6b58f61e15c"
+}
