@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AttachSettingsVersion;
 use App\Http\Middleware\EnsureDeviceIsActive;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
@@ -21,7 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->middleware('api')
                 ->group(glob(base_path('routes/agent/*.php')) ?: []);
 
-            Route::middleware(['web', 'auth', 'verified'])
+            Route::middleware(['web', 'auth', 'verified', 'active'])
                 ->group(glob(base_path('routes/dashboard/*.php')) ?: []);
         },
     )
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'device.active' => EnsureDeviceIsActive::class,
             'settings.version' => AttachSettingsVersion::class,
+            'active' => EnsureUserIsActive::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
