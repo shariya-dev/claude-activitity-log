@@ -1,5 +1,5 @@
 # H21 — Linux Adapter, systemd User Service, Packages
-Status: todo · Wave 5 · parallel with H18–H20 · Branch `handover/H21-platform-linux`
+Status: code complete (002739a), manual Ubuntu/Fedora validation pending · Wave 5 · parallel with H18–H20 · Branch `handover/H21-platform-linux`
 
 ## Objective
 Implement `PlatformAdapter` for Linux and `.deb`/`.rpm`/`.tar.gz` packages that install the bundled runtime + app and a `systemd --user` service, then start pairing.
