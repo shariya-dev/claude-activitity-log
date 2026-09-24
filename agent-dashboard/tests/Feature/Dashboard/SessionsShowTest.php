@@ -213,7 +213,7 @@ test('a viewer without can_view_prompts never receives messages and a forced par
     expect(AuditLog::query()->where('action', 'prompt.viewed')->count())->toBe(0);
 });
 
-test('an inactive user cannot load prompts even with can_view_prompts', function () {
+test('a user deactivated mid-session is signed out instead of loading prompts', function () {
     $user = User::factory()->viewer()->create(['can_view_prompts' => true]);
 
     $this->actingAs($user);
@@ -232,6 +232,7 @@ test('an inactive user cannot load prompts even with can_view_prompts', function
         Header::PARTIAL_ONLY => 'messages',
     ])->get(route('sessions.show', $this->session));
 
+    $response->assertRedirect();
     expect($response->getContent())->not->toContain(SESSIONS_SHOW_PROMPT);
     expect(AuditLog::query()->where('action', 'prompt.viewed')->count())->toBe(0);
 });
@@ -334,3 +335,35 @@ test('a permitted user sees no prompts section for a session without messages', 
             ->where('prompts.message_count', 0)
             ->missing('messages'));
 });
+
+test('every partial reload shape that resolves messages is authorized and audited', function (array $filterHeaders, bool $permitted, int $status) {
+    $this->actingAs($permitted ? $this->promptViewer : $this->plainViewer);
+
+    $version = '';
+    $this->get(route('sessions.show', $this->session))
+        ->assertInertia(function (Assert $page) use (&$version) {
+            $version = (string) $page->toArray()['version'];
+        });
+
+    $response = $this->withHeaders([
+        Header::INERTIA => 'true',
+        Header::VERSION => $version,
+        Header::PARTIAL_COMPONENT => 'Sessions/Show',
+        ...$filterHeaders,
+    ])->get(route('sessions.show', $this->session));
+
+    $response->assertStatus($status);
+
+    if ($permitted) {
+        expect($response->getContent())->toContain(SESSIONS_SHOW_PROMPT);
+    } else {
+        expect($response->getContent())->not->toContain(SESSIONS_SHOW_PROMPT);
+    }
+
+    expect(AuditLog::query()->where('action', 'prompt.viewed')->count())->toBe($permitted ? 1 : 0);
+})->with([
+    'except header, not permitted' => [[Header::PARTIAL_EXCEPT => 'timeline'], false, 403],
+    'except header, permitted' => [[Header::PARTIAL_EXCEPT => 'timeline'], true, 200],
+    'component only, not permitted' => [[], false, 403],
+    'component only, permitted' => [[], true, 200],
+]);

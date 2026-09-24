@@ -118,7 +118,7 @@ const endTooltip =
     'Claude Code does not record an explicit end; last activity shown';
 
 const timelineTruncated = computed<boolean>(
-    () => props.timeline.length >= props.timeline_limit,
+    () => props.totals.message_count > props.timeline.length,
 );
 
 // Copy source session ID
@@ -473,7 +473,7 @@ const linkClass =
                     v-if="timelineTruncated && timeline.length > 0"
                     class="text-xs text-muted-foreground"
                 >
-                    Showing the first {{ formatTokensFull(timeline_limit) }}
+                    Showing the first {{ formatTokensFull(timeline.length) }}
                     messages
                 </p>
             </div>

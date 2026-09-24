@@ -54,7 +54,7 @@ class SessionController extends Controller
             ->pluck('status', 'id');
 
         $sessions = new LengthAwarePaginator(
-            array_map(fn (array $row): array => [...$row, 'status' => $statuses[$row['id']]?->value], $page->items()),
+            array_map(fn (array $row): array => [...$row, 'status' => $statuses->get($row['id'])?->value], $page->items()),
             $page->total(),
             $page->perPage(),
             $page->currentPage(),
