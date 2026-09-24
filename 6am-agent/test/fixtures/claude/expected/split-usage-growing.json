@@ -52,5 +52,12 @@
       "recorded_at": "2026-09-22T08:00:00.000Z"
     }
   ],
-  "tokenSums": { "input": 10, "output": 314, "cache_creation": 600, "cache_read": 18500, "actual": 924, "total": 19424 }
+  "tokenSums": {
+    "input": 10,
+    "output": 314,
+    "cache_creation": 600,
+    "cache_read": 18500,
+    "actual": 924,
+    "total": 19424
+  }
 }

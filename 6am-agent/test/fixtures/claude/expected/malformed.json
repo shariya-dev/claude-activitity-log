@@ -47,5 +47,12 @@
       "recorded_at": "2026-09-21T12:01:00.000Z"
     }
   ],
-  "tokenSums": { "input": 7, "output": 77, "cache_creation": 700, "cache_read": 7000, "actual": 784, "total": 7784 }
+  "tokenSums": {
+    "input": 7,
+    "output": 77,
+    "cache_creation": 700,
+    "cache_read": 7000,
+    "actual": 784,
+    "total": 7784
+  }
 }
