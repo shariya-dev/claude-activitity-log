@@ -1,5 +1,5 @@
 # H14 — Project Analytics (PRD §17, §46)
-Status: todo · Wave 4 · parallel with H11–H13, H15–H17 · Branch `handover/H14-dashboard-projects`
+Status: done (eabb04b) · Wave 4 · parallel with H11–H13, H15–H17 · Branch `handover/H14-dashboard-projects`
 
 ## Objective
 Project list and project detail analytics.
