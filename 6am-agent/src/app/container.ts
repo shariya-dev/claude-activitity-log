@@ -121,6 +121,7 @@ export async function createContainer(
       ...(o.fetchImpl === undefined ? {} : { fetchImpl: o.fetchImpl }),
       userAgent: `6am-agent/${AGENT_VERSION} (${adapter.id}; ${process.arch})`,
       logger,
+      allowInsecureLoopback: buildConfig.channel === 'dev',
     }),
     counters,
   );

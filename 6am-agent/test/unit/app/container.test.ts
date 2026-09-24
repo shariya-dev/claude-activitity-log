@@ -71,6 +71,33 @@ describe('createContainer', () => {
     });
   });
 
+  describe('insecure loopback', () => {
+    it('a dev build pointing at http://127.0.0.1 works without AGENT_ALLOW_INSECURE_LOCALHOST', async () => {
+      env.cleanup();
+      env = makeEnv({ apiBaseUrl: 'http://127.0.0.1:8000' });
+      vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', undefined);
+      const container = await create();
+      await env.adapter.credentials.set('device_token', 'tok-SECRET-9f8e7d6c5b4a');
+      await container.api.settings();
+      expect(container.apiBaseUrl).toBe('http://127.0.0.1:8000');
+      expect(env.backend.calls[0]?.path).toBe('/settings');
+    });
+
+    it('a dev build still rejects http for a non-loopback host', async () => {
+      env.cleanup();
+      env = makeEnv({ apiBaseUrl: 'http://dev.monitor.test' });
+      vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', '1');
+      await expect(create()).rejects.toThrow(/https/);
+    });
+
+    it('a dev build accepts an http loopback AGENT_API_BASE_URL override', async () => {
+      vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', undefined);
+      vi.stubEnv('AGENT_API_BASE_URL', 'http://localhost:8766');
+      const container = await create();
+      expect(container.apiBaseUrl).toBe('http://localhost:8766');
+    });
+  });
+
   describe('dev-only overrides', () => {
     it('AGENT_DATA_DIR and AGENT_CREDENTIAL_BACKEND=file apply on the dev channel', async () => {
       const other = path.join(env.root, 'override');

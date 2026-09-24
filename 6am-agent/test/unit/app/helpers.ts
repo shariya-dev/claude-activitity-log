@@ -137,7 +137,9 @@ export interface TestEnv {
  * A temp root with a dev build-config, an app data dir, and a Claude data dir holding the
  * basic-session fixture under projects/ plus `.claude.json`. `claude: false` leaves it empty.
  */
-export function makeEnv(o: { channel?: 'dev' | 'stable'; claude?: boolean } = {}): TestEnv {
+export function makeEnv(
+  o: { channel?: 'dev' | 'stable'; claude?: boolean; apiBaseUrl?: string } = {},
+): TestEnv {
   const root = mkdtempSync(path.join(tmpdir(), 'h18-app-'));
   const dataDir = path.join(root, 'data');
   const claudeDir = path.join(root, 'claude');
@@ -155,7 +157,8 @@ export function makeEnv(o: { channel?: 'dev' | 'stable'; claude?: boolean } = {}
   writeFileSync(
     buildConfigPath,
     JSON.stringify({
-      apiBaseUrl: channel === 'dev' ? 'https://dev.monitor.test' : 'https://monitor.test',
+      apiBaseUrl:
+        o.apiBaseUrl ?? (channel === 'dev' ? 'https://dev.monitor.test' : 'https://monitor.test'),
       channel,
     }),
   );

@@ -123,14 +123,20 @@ function isOk(status: number): boolean {
   return status >= 200 && status < 300;
 }
 
-function checkedBaseUrl(baseUrl: string): string {
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * https only. Plain http is allowed for a loopback host (127.0.0.1, localhost, ::1) when the build
+ * channel allows it (`allowInsecureLoopback`, dev builds only) or `AGENT_ALLOW_INSECURE_LOCALHOST=1`.
+ */
+function checkedBaseUrl(baseUrl: string, allowInsecureLoopback: boolean): string {
   const trimmed = baseUrl.replace(/\/+$/, '');
   const url = new URL(trimmed);
   if (url.protocol === 'https:') return trimmed;
   const localDev =
     url.protocol === 'http:' &&
-    process.env.AGENT_ALLOW_INSECURE_LOCALHOST === '1' &&
-    (url.hostname === '127.0.0.1' || url.hostname === 'localhost');
+    (allowInsecureLoopback || process.env.AGENT_ALLOW_INSECURE_LOCALHOST === '1') &&
+    LOOPBACK_HOSTS.has(url.hostname);
   if (!localDev) throw new Error(`API base URL must use https (got ${url.protocol})`);
   return trimmed;
 }
@@ -154,8 +160,10 @@ export function createApiClient(o: {
   timeoutMs?: number;
   userAgent: string;
   logger?: Logger;
+  /** Allow http to a loopback host without the env var. Only a `dev` channel build sets this. */
+  allowInsecureLoopback?: boolean;
 }): ApiClient {
-  const baseUrl = checkedBaseUrl(o.baseUrl);
+  const baseUrl = checkedBaseUrl(o.baseUrl, o.allowInsecureLoopback === true);
   const fetchImpl = o.fetchImpl ?? fetch;
   const timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const agentVersion = /^6am-agent\/(\S+)/.exec(o.userAgent)?.[1] ?? null;

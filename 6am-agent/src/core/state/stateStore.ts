@@ -1,3 +1,4 @@
+import { chmodSync, closeSync, existsSync, openSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { AgentState, FileCheckpoint, TrackingSettings } from '../contract/index.js';
 
@@ -86,7 +87,21 @@ function transaction(db: DatabaseSync, fn: () => void): void {
   }
 }
 
+/**
+ * Makes state.db and any leftover `-wal`/`-shm` files owner-only (0600). The db file is created
+ * 0600 before SQLite opens it, and SQLite gives new WAL/SHM files the main file's mode. On Windows
+ * `chmod` only toggles the read-only flag and 0600 keeps the file writable, so this is a no-op
+ * there (same pattern as `fileCredentialStore`); access is governed by the per-user data dir ACL.
+ */
+function makePrivate(dbPath: string): void {
+  closeSync(openSync(dbPath, 'a', 0o600));
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    if (existsSync(file)) chmodSync(file, 0o600);
+  }
+}
+
 export function openStateStore(dbPath: string): StateStore {
+  if (dbPath !== ':memory:') makePrivate(dbPath);
   const db = new DatabaseSync(dbPath);
   try {
     if (dbPath !== ':memory:') db.exec('PRAGMA journal_mode = WAL');

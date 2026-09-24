@@ -333,6 +333,46 @@ describe('createApiClient: transport security', () => {
     expect(() => make('http://localhost/api/agent/v1')).not.toThrow();
   });
 
+  it('allows http loopback (127.0.0.1, localhost, ::1) without the env var when allowInsecureLoopback is set', async () => {
+    const dev = (baseUrl: string): ApiClient =>
+      client(createFakeFetch({ body: settingsBody }), { baseUrl, allowInsecureLoopback: true });
+    expect(() => dev('http://127.0.0.1:8000/api/agent/v1')).not.toThrow();
+    expect(() => dev('http://localhost/api/agent/v1')).not.toThrow();
+    expect(() => dev('http://[::1]:8000/api/agent/v1')).not.toThrow();
+    const f = createFakeFetch({ body: settingsBody });
+    await client(f, {
+      baseUrl: 'http://127.0.0.1:8000/api/agent/v1',
+      allowInsecureLoopback: true,
+    }).settings();
+    expect(f.requests[0]?.url).toBe('http://127.0.0.1:8000/api/agent/v1/settings');
+  });
+
+  it('still rejects http for non-loopback hosts when allowInsecureLoopback is set', () => {
+    const dev = (baseUrl: string): ApiClient =>
+      client(createFakeFetch(), { baseUrl, allowInsecureLoopback: true });
+    expect(() => dev('http://monitor.6amtech.com/api/agent/v1')).toThrow(/https/);
+    expect(() => dev('http://127.0.0.2/api/agent/v1')).toThrow(/https/);
+    expect(() => dev('http://localhost.evil.test/api/agent/v1')).toThrow(/https/);
+    expect(() => dev('http://192.168.1.5/api/agent/v1')).toThrow(/https/);
+    expect(() => dev('ftp://localhost/api')).toThrow(/https/);
+  });
+
+  it('does not allow loopback http by default (allowInsecureLoopback false or unset)', () => {
+    expect(() => make('http://127.0.0.1:8000/api/agent/v1')).toThrow(/https/);
+    expect(() =>
+      client(createFakeFetch(), {
+        baseUrl: 'http://localhost/api/agent/v1',
+        allowInsecureLoopback: false,
+      }),
+    ).toThrow(/https/);
+    expect(() => make('http://[::1]/api/agent/v1')).toThrow(/https/);
+  });
+
+  it('allows http://[::1] with AGENT_ALLOW_INSECURE_LOCALHOST=1', () => {
+    vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', '1');
+    expect(() => make('http://[::1]:8000/api/agent/v1')).not.toThrow();
+  });
+
   it('rejects other protocols', () => {
     vi.stubEnv('AGENT_ALLOW_INSECURE_LOCALHOST', '1');
     expect(() => make('ftp://localhost/api')).toThrow(/https/);
